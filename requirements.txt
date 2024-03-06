@@ -1,0 +1,5 @@
+GitPython==3.1.42
+PyGithub==2.2.0
+PyJWT==2.8.0
+Requests==2.31.0
+tenacity==8.2.3

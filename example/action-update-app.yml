@@ -1,0 +1,20 @@
+name: update-app
+
+on:
+  workflow_dispatch:
+
+concurrency: update-app
+
+jobs:
+  update-multiple:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: champ-oss/action-update-app@main
+        env:
+          GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
+          GITHUB_INSTALLATION_ID: ${{ secrets.GITHUB_INSTALLATION_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+          GITHUB_OWNER: ${{ env.GITHUB_REPOSITORY_OWNER
+          GITHUB_REPO_TARGET: ${{ env.GITHUB_REPO_TARGET }}
+          FILE_PATTERN_LIST: '["test/test.json", test/test2.json"]'

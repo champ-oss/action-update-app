@@ -1,0 +1,39 @@
+name: action-update-app
+description: https://github.com/champ-oss/action-update-app
+inputs:
+  APP_ID:
+    description: 'app id'
+    required: true
+  INSTALLATION_ID:
+    description: 'installation id'
+    required: true
+  PRIVATE_KEY:
+    description: 'private key'
+    required: true
+  GITHUB_OWNER:
+    description: 'github owner'
+    required: true
+  GITHUB_REPO:
+    description: 'github repo'
+    required: true
+  FILE_PATTERN_LIST:
+    description: 'file pattern list'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: install jira lib
+      shell: bash
+      run: cd ${{github.action_path}} && pip3 install -r requirements.txt
+    - name: run python script
+      shell: bash
+      env:
+        APP_ID: ${{ inputs.GITHUB_APP_ID }}
+        INSTALLATION_ID: ${{ inputs.GITHUB_INSTALLATION_ID }}
+        PRIVATE_KEY: ${{ inputs.GITHUB_APP_PRIVATE_KEY }}
+        GITHUB_OWNER: ${{ inputs.GITHUB_OWNER }}
+        GITHUB_REPO: ${{ inputs.GITHUB_REPO_TARGET }}
+        FILE_PATTERN_LIST: ${{ inputs.FILE_PATH_LIST }}
+      run: |
+        python ${GITHUB_ACTION_PATH}/action.py
