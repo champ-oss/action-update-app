@@ -28,12 +28,5 @@ runs:
       run: cd ${{github.action_path}} && pip3 install -r requirements.txt
     - name: run python script
       shell: bash
-      env:
-        APP_ID: ${{ inputs.GITHUB_APP_ID }}
-        INSTALLATION_ID: ${{ inputs.GITHUB_INSTALLATION_ID }}
-        PRIVATE_KEY: ${{ inputs.GITHUB_APP_PRIVATE_KEY }}
-        GITHUB_OWNER: ${{ inputs.GITHUB_OWNER }}
-        GITHUB_REPO: ${{ inputs.GITHUB_REPO_TARGET }}
-        FILE_PATTERN_LIST: ${{ inputs.FILE_PATH_LIST }}
       run: |
-        python ${GITHUB_ACTION_PATH}/action.py
+        python3 ${GITHUB_ACTION_PATH}/action.py

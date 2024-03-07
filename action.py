@@ -1,4 +1,6 @@
+#!/usr/bin/env python3
 # Description: This action is used to update the file in the github repository.
+import json
 import subprocess
 import time
 import github.Auth
@@ -12,27 +14,22 @@ from tenacity import retry, wait_fixed, stop_after_attempt
 
 def create_github_jwt(app_id: str, pem: str) -> str:
     """
-    Create a JWT for GitHub App.
+    Create GitHub JWT.
 
     :param app_id: GitHub App's identifier
     :param pem: Path to the private
-    :return: JWT
+    :return: GitHub JWT
     """
-    with open(pem, 'rb') as pem_file:
-        signing_key = jwt.jwk_from_pem(pem_file.read())
-
+    time_now = int(time.time())
     payload = {
-        # Issued at time
-        'iat': int(time.time()),
-        # JWT expiration time (10 minutes maximum)
-        'exp': int(time.time()) + 600,
-        # GitHub App's identifier
+        'iat': time_now,
+        'exp': time_now + (10 * 60),
         'iss': app_id
     }
-    # Create JWT
-    jwt_instance = jwt.JWT()
-    encoded_jwt = jwt_instance.encode(payload, signing_key, alg='RS256')
-    return encoded_jwt
+    with open(pem, 'r') as file:
+        private_key = file.read()
+    jwt_token = jwt.encode(payload, private_key, algorithm='RS256')
+    return jwt_token
 
 
 def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
@@ -59,18 +56,14 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
 
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
     """
-    Clone a repo.
+    Clone the repository.
 
+    :param repo_url: Repository URL
+    :param destination_name: Destination name
     :param branch_name: Branch name
-    :param destination_name: Name of the destination directory
-    :param repo_url: URL of the repository
-    :return: Repo object
     """
-    print(f'Cloning repo: {repo_url} to {destination_name}')
     repo = Repo.clone_from(repo_url, destination_name, branch=branch_name)
-    print(f'Cloned repo: {repo_url} to {destination_name}')
     return repo
-
 
 def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
     """
@@ -106,26 +99,31 @@ def main():
     installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
     branch_name = os.environ.get('BRANCH', 'main')
-    github_repo_owner = os.environ.get('GITHUB_OWNER')
-    search_string = os.environ.get('GITHUB_REPOSITORY')
-    github_repo_name = os.environ.get('GITHUB_REPO_TARGET')
-    git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', github_repo_name)
-    file_path_list = os.environ.get('FILE_PATH_LIST')
-
+    repo_owner = os.environ.get('GH_OWNER')
+    search_string = os.environ.get('GITHUB_REPOSITORY').split('/')[1]
+    repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
+    git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', search_string)
+    file_path_list = json.loads(os.environ['FILE_PATTERN_LIST'])
+    updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
     replace_value = os.environ.get('GITHUB_SHA')
+    # write private key to file
+    with open('private.pem', 'w') as file:
+        file.write(updated_private_key)
     # Get access token
-    access_token = get_github_access_token(app_id, installation_id, private_key)
+    access_token = get_github_access_token(app_id, installation_id, 'private.pem')
     # Clone repo
-    repo_url = f'https://x-access-token:{access_token}@github.com/{github_repo_owner}/{github_repo_name}.git'
+    repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner}/{repo_name_target}.git'
+    print(f'Cloning repo: {repo_url} to {git_local_directory}')
     destination_name = f'./{git_local_directory}'
-    git_clone_repo(repo_url, destination_name)
+    git_clone_repo(repo_url, destination_name, branch_name)
     # Update file
     github_client = github.Github(access_token)
-    repo = github_client.get_repo(f'{github_repo_owner}/{github_repo_name}')
+    repo = github_client.get_repo(f'{repo_owner}/{repo_name_target}')
     element_list = []
     for file_pattern_path in file_path_list:
         updated_path = Path(destination_name) / file_pattern_path
+        print(f'Updating path: {updated_path}')
         find_replace_file_pattern(search_string, replace_value, updated_path, suffix)
         data = updated_path.read_text()
         # update multiple files in same commit
