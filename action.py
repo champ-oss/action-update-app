@@ -99,7 +99,7 @@ def main():
     installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
     branch_name = os.environ.get('BRANCH', 'main')
-    repo_owner = os.environ.get('GH_OWNER')
+    repo_owner_target = os.environ.get('GITHUB_OWNER_TARGET')
     search_string = os.environ.get('GITHUB_REPOSITORY').split('/')[1]
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', search_string)
@@ -113,29 +113,29 @@ def main():
     # Get access token
     access_token = get_github_access_token(app_id, installation_id, 'private.pem')
     # Clone repo
-    repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner}/{repo_name_target}.git'
+    repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
     destination_name = f'./{git_local_directory}'
     git_clone_repo(repo_url, destination_name, branch_name)
     # Update file
     github_client = github.Github(access_token)
-    repo = github_client.get_repo(f'{repo_owner}/{repo_name_target}')
+    repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
     element_list = []
     for file_pattern_path in file_path_list:
         updated_path = Path(destination_name) / file_pattern_path
         print(f'Updating path: {updated_path}')
         find_replace_file_pattern(search_string, replace_value, updated_path, suffix)
         data = updated_path.read_text()
-        # update multiple files in same commit
         blob = repo.create_git_blob(data, 'utf-8')
         element = github.InputGitTreeElement(path=file_pattern_path, mode='100644', type='blob', sha=blob.sha)
         element_list.append(element)
+    # update multiple files in same commit
     head_sha = repo.get_branch(branch_name).commit.sha
     branch_sha = repo.get_branch(branch_name).commit.sha
     base_tree = repo.get_git_tree(head_sha)
     new_tree = repo.create_git_tree(element_list, base_tree)
     parent = repo.get_git_commit(sha=branch_sha)
-    commit = repo.create_git_commit("image update using app bot", new_tree, [parent])
+    commit = repo.create_git_commit("update commit sha using app bot", new_tree, [parent])
     github_ref_edit(repo, branch_name, commit.sha)
 
 

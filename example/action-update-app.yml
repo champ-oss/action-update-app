@@ -15,6 +15,6 @@ jobs:
           GITHUB_APP_ID: '${{ secrets.GITHUB_APP_ID }}'
           GITHUB_INSTALLATION_ID: '${{ secrets.GITHUB_INSTALLATION_ID }}'
           GITHUB_APP_PRIVATE_KEY: '${{ secrets.GITHUB_APP_PRIVATE_KEY }}'
-          GH_OWNER: "example"
-          GITHUB_REPO_TARGET: "example"
+          GITHUB_OWNER_TARGET: "example-org"
+          GITHUB_REPO_TARGET: "example-repo"
           FILE_PATTERN_LIST: '["test/example-01.tfvars", "test/example-02.tfvars", "test/example-03.tfvars"]'
