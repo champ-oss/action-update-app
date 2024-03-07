@@ -6,15 +6,15 @@ on:
 concurrency: update-app
 
 jobs:
-  update-multiple:
+  update-app:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: champ-oss/action-update-app@main
         env:
-          GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
-          GITHUB_INSTALLATION_ID: ${{ secrets.GITHUB_INSTALLATION_ID }}
-          GITHUB_APP_PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-          GITHUB_OWNER: ${{ env.GITHUB_REPOSITORY_OWNER
-          GITHUB_REPO_TARGET: ${{ env.GITHUB_REPO_TARGET }}
-          FILE_PATTERN_LIST: '["test/test.json", test/test2.json"]'
+          GITHUB_APP_ID: '12345'
+          GITHUB_INSTALLATION_ID: '12345'
+          GITHUB_APP_PRIVATE_KEY: '${{ secrets.GITHUB_APP_PRIVATE_KEY }}'
+          GH_OWNER: "example"
+          GITHUB_REPO_TARGET: "example"
+          FILE_PATTERN_LIST: '["test/example-01.tfvars", "test/example-02.tfvars", "test/example-03.tfvars"]'
