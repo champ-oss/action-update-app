@@ -12,8 +12,8 @@ jobs:
       - uses: actions/checkout@v3
       - uses: champ-oss/action-update-app@main
         env:
-          GITHUB_APP_ID: '12345'
-          GITHUB_INSTALLATION_ID: '12345'
+          GITHUB_APP_ID: '${{ secrets.GITHUB_APP_ID }}'
+          GITHUB_INSTALLATION_ID: '${{ secrets.GITHUB_INSTALLATION_ID }}'
           GITHUB_APP_PRIVATE_KEY: '${{ secrets.GITHUB_APP_PRIVATE_KEY }}'
           GH_OWNER: "example"
           GITHUB_REPO_TARGET: "example"
