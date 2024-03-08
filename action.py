@@ -9,6 +9,8 @@ import requests
 from pathlib import Path
 from git import Repo
 import os
+
+from github import Repository
 from tenacity import retry, wait_fixed, stop_after_attempt
 
 
@@ -65,6 +67,7 @@ def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Re
     repo = Repo.clone_from(repo_url, destination_name, branch=branch_name)
     return repo
 
+
 def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
     """
     Find and replace pattern in file.
@@ -82,18 +85,6 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 
 @retry(wait=wait_fixed(3), stop=stop_after_attempt(5))
-def github_ref_edit(repo: github, branch_name: str, commit_sha: str) -> None:
-    """
-    Update the branch reference to the commit sha.
-
-    :param repo: Repository
-    :param branch_name: Branch name
-    :param commit_sha: Commit sha
-    """
-    ref = repo.get_git_ref(f'heads/{branch_name}')
-    ref.edit(commit_sha)
-
-
 def update_file(repo: Repository, branch_name: str, file_path: str, sha: str, content: str = None) -> str:
     """
     Update a file in the repo.
