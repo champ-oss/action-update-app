@@ -110,7 +110,7 @@ def main():
     search_string = os.environ.get('GITHUB_REPOSITORY').split('/')[1]
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', search_string)
-    file_path_list = json.loads(os.environ['FILE_PATTERN_LIST'])
+    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
     replace_value = os.environ.get('GITHUB_SHA')
