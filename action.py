@@ -9,6 +9,8 @@ import requests
 from pathlib import Path
 from git import Repo
 import os
+
+from github import Repository
 from tenacity import retry, wait_fixed, stop_after_attempt
 
 
@@ -65,6 +67,7 @@ def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Re
     repo = Repo.clone_from(repo_url, destination_name, branch=branch_name)
     return repo
 
+
 def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
     """
     Find and replace pattern in file.
@@ -82,16 +85,20 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 
 @retry(wait=wait_fixed(3), stop=stop_after_attempt(5))
-def github_ref_edit(repo: github, branch_name: str, commit_sha: str) -> None:
+def update_file(repo: Repository, branch_name: str, file_path: str, sha: str, content: str = None) -> str:
     """
-    Update the branch reference to the commit sha.
+    Update a file in the repo.
 
-    :param repo: Repository
-    :param branch_name: Branch name
-    :param commit_sha: Commit sha
+    :param file_path: Path to file
+    :param sha: SHA of file
+    :param content: New content of file
+    :param repo: Repo to add file
+    :param branch_name: Name of branch
+    :return: SHA of the new commit
     """
-    ref = repo.get_git_ref(f'heads/{branch_name}')
-    ref.edit(commit_sha)
+    response = repo.update_file(path=file_path, message=f'update file for {file_path} on branch {branch_name}', content=content,
+                                sha=sha, branch=branch_name)
+    return response['commit'].sha
 
 
 def main():
@@ -103,7 +110,7 @@ def main():
     search_string = os.environ.get('GITHUB_REPOSITORY').split('/')[1]
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', search_string)
-    file_path_list = json.loads(os.environ['FILE_PATTERN_LIST'])
+    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
     replace_value = os.environ.get('GITHUB_SHA')
@@ -120,23 +127,14 @@ def main():
     # Update file
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
-    element_list = []
-    for file_pattern_path in file_path_list:
-        updated_path = Path(destination_name) / file_pattern_path
-        print(f'Updating path: {updated_path}')
-        find_replace_file_pattern(search_string, replace_value, updated_path, suffix)
-        data = updated_path.read_text()
-        blob = repo.create_git_blob(data, 'utf-8')
-        element = github.InputGitTreeElement(path=file_pattern_path, mode='100644', type='blob', sha=blob.sha)
-        element_list.append(element)
-    # update multiple files in same commit
-    head_sha = repo.get_branch(branch_name).commit.sha
-    branch_sha = repo.get_branch(branch_name).commit.sha
-    base_tree = repo.get_git_tree(head_sha)
-    new_tree = repo.create_git_tree(element_list, base_tree)
-    parent = repo.get_git_commit(sha=branch_sha)
-    commit = repo.create_git_commit("update commit sha using app bot", new_tree, [parent])
-    github_ref_edit(repo, branch_name, commit.sha)
+    for file_path in file_path_list:
+        print(f'Updating file: {file_path}')
+        file_content = Path(file_path).read_text()
+        get_remote_content = repo.get_contents(file_path, ref=branch_name)
+        find_replace_file_pattern(search_string, replace_value, file_path, suffix)
+        updated_content = Path(file_path).read_text()
+        update_file(repo, branch_name, file_path, get_remote_content.sha, updated_content)
+        print(f'Updated file: {file_path}')
 
 
 main()
