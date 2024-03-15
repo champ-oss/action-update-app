@@ -107,7 +107,7 @@ def main():
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
     branch_name = os.environ.get('BRANCH', 'main')
     repo_owner_target = os.environ.get('GITHUB_OWNER_TARGET')
-    search_string = os.environ.get('GITHUB_REPOSITORY').split('/')[1]
+    search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', search_string)
     file_path_list = json.loads(os.environ['FILE_PATH_LIST'])

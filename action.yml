@@ -1,24 +1,27 @@
 name: action-update-app
 description: https://github.com/champ-oss/action-update-app
 inputs:
-  APP_ID:
-    description: 'app id'
+  GITHUB_APP_ID:
+    description: 'github app id'
     required: true
-  INSTALLATION_ID:
+  GITHUB_INSTALLATION_ID:
     description: 'installation id'
     required: true
-  PRIVATE_KEY:
+  GITHUB_APP_PRIVATE_KEY:
     description: 'private key'
     required: true
-  GITHUB_OWNER:
+  GITHUB_OWNER_TARGET:
     description: 'github owner'
     required: true
-  GITHUB_REPO:
+  GITHUB_REPO_TARGET:
     description: 'github repo'
     required: true
-  FILE_PATTERN_LIST:
+  FILE_PATH_LIST:
     description: 'file pattern list'
     required: true
+  SEARCH_KEY:
+    description: 'search key'
+    required: false
 
 runs:
   using: "composite"
