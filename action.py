@@ -107,7 +107,7 @@ def main():
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
     branch_name = os.environ.get('BRANCH', 'main')
     repo_owner_target = os.environ.get('GITHUB_OWNER_TARGET')
-    search_string = os.environ.get('GITHUB_REPOSITORY').split('/')[1]
+    search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', search_string)
     file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
@@ -129,7 +129,6 @@ def main():
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
     for file_path in file_path_list:
         print(f'Updating file: {file_path}')
-        file_content = Path(file_path).read_text()
         get_remote_content = repo.get_contents(file_path, ref=branch_name)
         find_replace_file_pattern(search_string, replace_value, file_path, suffix)
         updated_content = Path(file_path).read_text()

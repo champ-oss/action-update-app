@@ -12,9 +12,9 @@ jobs:
       - uses: actions/checkout@v3
       - uses: champ-oss/action-update-app@main
         env:
-          GITHUB_APP_ID: '${{ secrets.GITHUB_APP_ID }}'
-          GITHUB_INSTALLATION_ID: '${{ secrets.GITHUB_INSTALLATION_ID }}'
-          GITHUB_APP_PRIVATE_KEY: '${{ secrets.GITHUB_APP_PRIVATE_KEY }}'
+          GITHUB_APP_ID: '${{ secrets.GH_APP_ID }}'
+          GITHUB_INSTALLATION_ID: '${{ secrets.GH_INSTALLATION_ID }}'
+          GITHUB_APP_PRIVATE_KEY: '${{ secrets.GH_APP_PRIVATE_KEY }}'
           GITHUB_OWNER_TARGET: "example-org"
           GITHUB_REPO_TARGET: "example-repo"
           FILE_PATH_LIST: '["test/example-01.tfvars", "test/example-02.tfvars", "test/example-03.tfvars"]'
