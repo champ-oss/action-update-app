@@ -109,7 +109,7 @@ def main():
     repo_owner_target = os.environ.get('GITHUB_OWNER_TARGET')
     search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
-    git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', search_string)
+    git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_owner_target)
     file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
