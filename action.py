@@ -110,7 +110,7 @@ def main():
     search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_owner_target)
-    file_pattern_list = json.loads(os.environ['FILE_PATTERN_LIST'])
+    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
     replace_value = os.environ.get('GITHUB_SHA')
@@ -126,7 +126,7 @@ def main():
     # Update file
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
-    for file_pattern in file_pattern_list:
+    for file_pattern in file_path_list:
         updated_file_path = Path(git_local_directory) / file_pattern
         find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
         if updated_file_path.exists():
