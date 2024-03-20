@@ -110,7 +110,7 @@ def main():
     search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_owner_target)
-    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
+    file_pattern_list = json.loads(os.environ['FILE_PATTERN_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
     replace_value = os.environ.get('GITHUB_SHA')
@@ -122,19 +122,22 @@ def main():
     # Clone repo
     repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
-    destination_name = f'./{git_local_directory}'
-    git_clone_repo(repo_url, destination_name, branch_name)
+    git_clone_repo(repo_url, git_local_directory, branch_name)
     # Update file
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
-    for file_path in file_path_list:
-        absolute_file_path = f'{destination_name}/{file_path}'
-        print(f'Updating file: {absolute_file_path}')
-        get_remote_content = repo.get_contents(absolute_file_path, ref=branch_name)
-        find_replace_file_pattern(search_string, replace_value, get_remote_content.path, suffix)
-        updated_content = Path(get_remote_content.path).read_text()
-        update_file(repo, branch_name, file_path, get_remote_content.sha, updated_content)
-        print(f'Updated file: {absolute_file_path} ')
+    for file_pattern in file_pattern_list:
+        updated_file_path = Path(git_local_directory) / file_pattern
+        find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
+        if updated_file_path.exists():
+            with open(updated_file_path, 'r') as file:
+                content = file.read()
+            sha = repo.get_contents(file_pattern, ref=branch_name).sha
+            update_file(repo, branch_name, file_pattern, sha, content)
+        else:
+            print(f'File {file_pattern} does not exist in the repository.')
+
+    print('File updated successfully.')
 
 
 main()
