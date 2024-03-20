@@ -128,12 +128,13 @@ def main():
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
     for file_path in file_path_list:
-        print(f'Updating file: {file_path}')
-        get_remote_content = repo.get_contents(file_path, ref=branch_name)
+        absolute_file_path = f'{destination_name}/{file_path}'
+        print(f'Updating file: {absolute_file_path}')
+        get_remote_content = repo.get_contents(absolute_file_path, ref=branch_name)
         find_replace_file_pattern(search_string, replace_value, get_remote_content.path, suffix)
         updated_content = Path(get_remote_content.path).read_text()
         update_file(repo, branch_name, file_path, get_remote_content.sha, updated_content)
-        print(f'Updated file: {file_path}')
+        print(f'Updated file: {absolute_file_path} ')
 
 
 main()
