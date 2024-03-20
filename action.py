@@ -130,8 +130,8 @@ def main():
     for file_path in file_path_list:
         print(f'Updating file: {file_path}')
         get_remote_content = repo.get_contents(file_path, ref=branch_name)
-        find_replace_file_pattern(search_string, replace_value, file_path, suffix)
-        updated_content = Path(file_path).read_text()
+        find_replace_file_pattern(search_string, replace_value, get_remote_content.path, suffix)
+        updated_content = Path(get_remote_content.path).read_text()
         update_file(repo, branch_name, file_path, get_remote_content.sha, updated_content)
         print(f'Updated file: {file_path}')
 
