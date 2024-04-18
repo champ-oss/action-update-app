@@ -113,7 +113,7 @@ def main():
     file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
-    replace_value = os.environ.get('GITHUB_SHA')
+    replace_value = os.environ.get('REPLACE_VALUE', 'GITHUB_SHA')
     # write private key to file
     with open('private.pem', 'w') as file:
         file.write(updated_private_key)
