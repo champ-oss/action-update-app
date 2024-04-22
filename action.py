@@ -85,7 +85,7 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 
 @retry(wait=wait_fixed(3), stop=stop_after_attempt(5))
-def update_file(repo: Repository, branch_name: str, file_path: str, sha: str, search_string: str, content: str = None) -> str:
+def update_file(repo: Repository, branch_name: str, file_path: str, sha: str, search_string: str, gh_sha: str, content: str = None) -> str:
     """
     Update a file in the repo.
 
@@ -93,11 +93,12 @@ def update_file(repo: Repository, branch_name: str, file_path: str, sha: str, se
     :param sha: SHA of file
     :param content: New content of file
     :param repo: Repo to add file
-    :param search_string: search_string
+    :param search_string: search_string for message
+    :param gh_sha: gh sha for message.
     :param branch_name: Name of branch
     :return: SHA of the new commit
     """
-    response = repo.update_file(path=file_path, message=f'updated {search_string}-{sha}', content=content,
+    response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}', content=content,
                                 sha=sha, branch=branch_name)
     return response['commit'].sha
 
@@ -135,7 +136,7 @@ def main():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
             sha = repo.get_contents(file_pattern, ref=branch_name).sha
-            update_file(repo, branch_name, file_pattern, sha, search_string, content)
+            update_file(repo, branch_name, file_pattern, sha, search_string, gh_sha, content)
         else:
             print(f'File {file_pattern} does not exist in the repository.')
 
