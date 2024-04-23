@@ -10,9 +10,6 @@ inputs:
   GITHUB_APP_PRIVATE_KEY:
     description: 'private key'
     required: true
-  GITHUB_OWNER_TARGET:
-    description: 'github owner'
-    required: true
   GITHUB_REPO_TARGET:
     description: 'github repo'
     required: true
