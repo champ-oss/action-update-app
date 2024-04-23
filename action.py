@@ -3,7 +3,6 @@
 import json
 import subprocess
 import time
-
 import github.Auth
 import jwt
 import requests
@@ -85,26 +84,26 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
     )
 
 
-@retry(wait=wait_fixed(10), stop=stop_after_attempt(10))
-def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str) -> str:
+@retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
+def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str, content: str = None) -> str:
     """
     Update a file in the repo.
 
     :param file_path: Path to file
     :param repo: Repo to add file
     :param search_string: search_string for message
+    :param content: Content of the file
     :param gh_sha: gh sha for message.
     :param branch_name: Name of branch
     :return: SHA of the new commit
     """
-    content = Path(file_path).read_text()
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
         response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}', content=content,
-                                    sha=sha, branch=branch_name)
+                                sha=sha, branch=branch_name)
     except Exception as e:
-        print(f'Failed to update file: {file_path} in {repo.full_name} with error: {e}')
-        raise e
+        print(f'Error occurred while updating the file: {e}')
+        raise
     return response['commit'].sha
 
 
@@ -117,7 +116,7 @@ def main():
     search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_name_target)
-    file_path = os.environ.get('FILE_PATH')
+    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
     gh_sha = os.environ.get('GITHUB_SHA')
@@ -134,13 +133,17 @@ def main():
     # Update file
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
-    updated_file_path = Path(git_local_directory) / file_path
-    find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
-    get_sha = update_file(repo, branch_name, updated_file_path, search_string, gh_sha)
-    if get_sha:
-        print(f'Updated file: {file_path} in {repo_owner_target}/{repo_name_target} with SHA: {get_sha}')
-    else:
-        print(f'Failed to update file: {file_path} in {repo_owner_target}/{repo_name_target}')
+    for file_pattern in file_path_list:
+        updated_file_path = Path(git_local_directory) / file_pattern
+        find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
+        if updated_file_path.exists():
+            with open(updated_file_path, 'r') as file:
+                content = file.read()
+            update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
+        else:
+            print(f'File {file_pattern} does not exist in the repository.')
+
+    print('File updated successfully.')
 
 
 main()
