@@ -16,4 +16,4 @@ jobs:
           GITHUB_INSTALLATION_ID: '${{ secrets.GH_INSTALLATION_ID }}'
           GITHUB_APP_PRIVATE_KEY: '${{ secrets.GH_APP_PRIVATE_KEY }}'
           GITHUB_REPO_TARGET: "example-repo"
-          FILE_PATH: "test/example-01.tfvars"
+          FILE_PATH_LIST: '["test/example-01.tfvars", "test/example-02.tfvars", "test/example-03.tfvars"]'

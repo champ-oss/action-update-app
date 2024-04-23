@@ -13,8 +13,8 @@ inputs:
   GITHUB_REPO_TARGET:
     description: 'github repo'
     required: true
-  FILE_PATH:
-    description: 'file path'
+  FILE_PATH_LIST:
+    description: 'file pattern list'
     required: true
   SEARCH_KEY:
     description: 'search key'
