@@ -3,6 +3,8 @@
 import json
 import subprocess
 import time
+from typing import Any
+
 import github.Auth
 import jwt
 import requests
@@ -95,7 +97,7 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 
 def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str,
-                get_repo: Repo, content: str = None) -> str or None:
+                get_repo: Repo, content: str = None) -> bool:
     """
     Update a file in the repo.
 
@@ -112,7 +114,7 @@ def update_file(repo: Repository, branch_name: str, file_path: str, search_strin
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
         repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
-                                    content=content, sha=sha, branch=branch_name)
+                         content=content, sha=sha, branch=branch_name)
         return True
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
@@ -151,15 +153,14 @@ def main():
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            get_sha = update_file(repo, branch_name, file_pattern, search_string, gh_sha, get_repo, content)
-            if get_sha is True:
+            update_file_status = update_file(repo, branch_name, file_pattern, search_string, gh_sha, get_repo, content)
+            if update_file_status is True:
                 print(f'File updated successfully: {file_pattern}')
-
-            print(f'Error occurred while updating the file: {file_pattern}')
-            os.system(f'ls -la')
-            os.system(f'rm -rf {git_local_directory}')
-            print('---------------------------')
-            raise Exception(f'Error occurred while updating the file: {file_pattern}')
+            else:
+                print(f'Error occurred while updating the file: {file_pattern}')
+                os.system(f'rm -rf {git_local_directory}')
+                print('---------------------------')
+                raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
 main()
