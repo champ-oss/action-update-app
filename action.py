@@ -156,7 +156,9 @@ def main():
                 print(f'File updated successfully: {file_pattern}')
 
             print(f'Error occurred while updating the file: {file_pattern}')
+            os.system(f'ls -la')
             os.system(f'rm -rf {git_local_directory}')
+            print('---------------------------')
             raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
