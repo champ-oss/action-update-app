@@ -56,15 +56,14 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
     return access_token
 
 
-def git_pull(repo_path: Path) -> None:
+def git_pull(repo_path: Repo) -> None:
     """
     Pull the changes from the remote repository.
 
     :param repo_path: Repository path
     """
-    repo = Remote.Repo(repo_path)
-    # pull changes from the remote repository
-    repo.git.pull()
+    origin: Remote = repo_path.remotes.origin
+    origin.pull()
 
 
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
@@ -97,20 +96,20 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
 def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str,
-                git_local_directory: Path, content: str = None) -> str:
+                get_repo: Repo, content: str = None) -> str:
     """
     Update a file in the repo.
 
     :param file_path: Path to file
     :param repo: Repo to add file
-    :param git_local_directory: Local directory of the git
+    :param get_repo: Repo to clone
     :param search_string: search_string for message
     :param content: Content of the file
     :param gh_sha: gh sha for message.
     :param branch_name: Name of branch
     :return: SHA of the new commit
     """
-    git_pull(Path(git_local_directory))
+    git_pull(get_repo)
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
         response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
@@ -143,7 +142,7 @@ def main():
     # Clone repo
     repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
-    git_clone_repo(repo_url, git_local_directory, branch_name)
+    get_repo = git_clone_repo(repo_url, git_local_directory, branch_name)
     # Update file
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
@@ -153,7 +152,7 @@ def main():
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            update_file(repo, branch_name, file_pattern, search_string, gh_sha, git_local_directory, content)
+            update_file(repo, branch_name, file_pattern, search_string, gh_sha, git_local_directory, get_repo, content)
         else:
             print(f'File {file_pattern} does not exist in the repository.')
 
