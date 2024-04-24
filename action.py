@@ -75,7 +75,7 @@ def git_push(repo_path: Repo, search_string: str, gh_sha: str) -> None:
     :param gh_sha: gh sha for message.
     """
     origin: Remote = repo_path.remotes.origin
-    origin.push(message='Update file for ' + search_string + '-' + gh_sha, force=True)
+    origin.push(message=f'updated for {search_string}:{gh_sha}')
 
 
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
@@ -120,8 +120,10 @@ def update_file(search_string: str, gh_sha: str, get_repo: Repo) -> None:
     :param branch_name: Name of branch
     :return: SHA of the new commit
     """
+    # git push or pull
     git_pull(get_repo)
     git_push(get_repo, search_string, gh_sha)
+
 
 
 
