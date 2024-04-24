@@ -115,8 +115,8 @@ def update_file(repo: Repository, branch_name: str, file_path: str, search_strin
                                     content=content, sha=sha, branch=branch_name)
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
-        return None
-    return response['commit'].sha
+        return False
+    return True
 
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
@@ -154,12 +154,12 @@ def main():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
             get_sha = update_file(repo, branch_name, file_pattern, search_string, gh_sha, get_repo, content)
-            if get_sha:
+            if get_sha is True:
                 print(f'File updated successfully: {file_pattern}')
             else:
                 print(f'Error occurred while updating the file: {file_pattern}')
                 # remove cloned repo
-                get_repo.close()
+                os.system(f'rm -rf {git_local_directory}')
                 raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
