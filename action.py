@@ -3,13 +3,15 @@
 import json
 import subprocess
 import time
+from typing import Any
+
 import github.Auth
 import jwt
 import requests
 from pathlib import Path
-from git import Repo
 import os
 
+from git import Repo
 from github import Repository
 from tenacity import retry, wait_fixed, stop_after_attempt
 
@@ -84,8 +86,8 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
     )
 
 
-@retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
-def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str, content: str = None) -> str:
+def update_file(repo: Repository, branch_name: str, file_path: str,
+                search_string: str, gh_sha: str, content: str = None) -> Any | None:
     """
     Update a file in the repo.
 
@@ -100,14 +102,16 @@ def update_file(repo: Repository, branch_name: str, file_path: str, search_strin
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
         response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
-                                    content=content, sha=sha, branch=branch_name)
+                                content=content, sha=sha, branch=branch_name)
+        return response is not None
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
-        raise
-    return response['commit'].sha
+        return None
 
 
+@retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
 def main():
+
     app_id = os.environ.get('GITHUB_APP_ID')
     installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
@@ -116,6 +120,7 @@ def main():
     search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_name_target)
+    os.system(f'rm -rf {git_local_directory} || true')
     file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
@@ -124,13 +129,10 @@ def main():
     # write private key to file
     with open('private.pem', 'w') as file:
         file.write(updated_private_key)
-    # Get access token
     access_token = get_github_access_token(app_id, installation_id, 'private.pem')
-    # Clone repo
     repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
     git_clone_repo(repo_url, git_local_directory, branch_name)
-    # Update file
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
     for file_pattern in file_path_list:
@@ -139,11 +141,12 @@ def main():
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
-        else:
-            print(f'File {file_pattern} does not exist in the repository.')
-
-    print('File updated successfully.')
+            update_file_status = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
+            if update_file_status is not None:
+                print(f'File updated successfully: {file_pattern}')
+            else:
+                os.system(f'rm -rf {git_local_directory} || true')
+                raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
 main()
