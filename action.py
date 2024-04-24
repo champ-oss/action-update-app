@@ -107,8 +107,7 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
-def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str,
-                get_repo: Repo, content: str = None) -> None:
+def update_file(search_string: str, gh_sha: str, get_repo: Repo) -> None:
     """
     Update a file in the repo.
 
@@ -151,15 +150,15 @@ def main():
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
     get_repo = git_clone_repo(repo_url, git_local_directory, branch_name)
     # Update file
-    github_client = github.Github(access_token)
-    repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
+    # github_client = github.Github(access_token)
+    # repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
     for file_pattern in file_path_list:
         updated_file_path = Path(git_local_directory) / file_pattern
         find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            update_file(repo, branch_name, file_pattern, search_string, gh_sha, get_repo, content)
+            update_file(search_string, gh_sha, get_repo)
         else:
             print(f'File {file_pattern} does not exist in the repository.')
 
