@@ -66,6 +66,18 @@ def git_pull(repo_path: Repo) -> None:
     origin.pull()
 
 
+def git_push(repo_path: Repo, search_string: str, gh_sha: str) -> None:
+    """
+    Push the changes to the remote repository.
+
+    :param repo_path: Repository path
+    :param search_string: search_string for message
+    :param gh_sha: gh sha for message.
+    """
+    origin: Remote = repo_path.remotes.origin
+    origin.push(message='Update file for ' + search_string + '-' + gh_sha, force=True)
+
+
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
     """
     Clone the repository.
@@ -96,7 +108,7 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
 def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str,
-                get_repo: Repo, content: str = None) -> str:
+                get_repo: Repo, content: str = None) -> None:
     """
     Update a file in the repo.
 
@@ -110,14 +122,9 @@ def update_file(repo: Repository, branch_name: str, file_path: str, search_strin
     :return: SHA of the new commit
     """
     git_pull(get_repo)
-    sha = repo.get_contents(file_path, ref=branch_name).sha
-    try:
-        response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
-                                    content=content, sha=sha, branch=branch_name)
-    except Exception as e:
-        print(f'Error occurred while updating the file: {e}')
-        raise
-    return response['commit'].sha
+    git_push(get_repo, search_string, gh_sha)
+
+
 
 
 def main():
