@@ -95,7 +95,7 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 
 def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str,
-                get_repo: Repo, content: str = None) -> str:
+                get_repo: Repo, content: str = None) -> str or None:
     """
     Update a file in the repo.
 
@@ -115,7 +115,7 @@ def update_file(repo: Repository, branch_name: str, file_path: str, search_strin
                                     content=content, sha=sha, branch=branch_name)
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
-        raise
+        return None
     return response['commit'].sha
 
 
@@ -158,7 +158,8 @@ def main():
                 print(f'File updated successfully: {file_pattern}')
             else:
                 print(f'Error occurred while updating the file: {file_pattern}')
-                os.system(f'rm -rf {updated_file_path} || true')
+                # remove cloned repo
+                get_repo.close()
                 raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
