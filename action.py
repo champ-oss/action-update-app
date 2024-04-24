@@ -157,9 +157,7 @@ def main():
             if update_file_status is True:
                 print(f'File updated successfully: {file_pattern}')
             else:
-                print(f'Error occurred while updating the file: {file_pattern}')
                 os.system(f'rm -rf {git_local_directory}')
-                print('---------------------------')
                 raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
