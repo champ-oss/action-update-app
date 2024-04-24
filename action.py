@@ -56,28 +56,6 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
     return access_token
 
 
-def git_pull(repo_path: Repo) -> None:
-    """
-    Pull the changes from the remote repository.
-
-    :param repo_path: Repository path
-    """
-    origin: Remote = repo_path.remotes.origin
-    origin.pull()
-
-
-def git_push(repo_path: Repo, search_string: str, gh_sha: str) -> None:
-    """
-    Push the changes to the remote repository.
-
-    :param repo_path: Repository path
-    :param search_string: search_string for message
-    :param gh_sha: gh sha for message.
-    """
-    origin: Remote = repo_path.remotes.origin
-    origin.push(message=f'updated for {search_string}:{gh_sha}')
-
-
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
     """
     Clone the repository.
@@ -120,12 +98,18 @@ def update_file(search_string: str, gh_sha: str, get_repo: Repo) -> None:
     :param branch_name: Name of branch
     :return: SHA of the new commit
     """
-    # git push or pull
-    git_pull(get_repo)
-    git_push(get_repo, search_string, gh_sha)
-
-
-
+    subprocess.call(
+        [
+            'bash', '-c', f"""
+            cd {get_repo.working_dir}
+            git config --global user.email "no@reply.com"
+            git config --global user.name "GitHub Actions"
+            git commit -am f"${search_string}-${gh_sha}" || echo "No changes needed"
+            for i in 1 2 3 4 5; do git push && exit 0 || git pull -r && sleep 5; done
+            echo "ERROR: could not push to git repo" && exit 5
+            """
+        ]
+    )
 
 
 def main():
