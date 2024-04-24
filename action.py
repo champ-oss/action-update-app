@@ -3,7 +3,6 @@
 import json
 import subprocess
 import time
-import github.Auth
 import jwt
 import requests
 from pathlib import Path
