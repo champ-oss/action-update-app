@@ -3,11 +3,12 @@
 import json
 import subprocess
 import time
-import github.Auth
+from pathlib import Path
+
+import github
 import jwt
 import requests
-from pathlib import Path
-from git import Repo
+from git import Repo, Remote
 import os
 
 from github import Repository
@@ -68,6 +69,18 @@ def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Re
     return repo
 
 
+def git_repo_pull(repo: Repo, branch_name: str) -> Remote:
+    """
+    Pull the repository.
+
+    :param repo: Repository
+    :param branch_name: Branch name
+    """
+    remote = repo.remotes.origin
+    remote.pull(branch_name)
+    return remote
+
+
 def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
     """
     Find and replace pattern in file.
@@ -97,7 +110,7 @@ def update_file(repo: Repository, branch_name: str, file_path: str, search_strin
     :param branch_name: Name of branch
     :return: SHA of the new commit
     """
-    repo_remote_pull(repo, branch_name)
+    git_repo_pull(repo, branch_name)
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
         response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
@@ -106,16 +119,6 @@ def update_file(repo: Repository, branch_name: str, file_path: str, search_strin
         print(f'Error occurred while updating the file: {e}')
         raise
     return response['commit'].sha
-
-
-def repo_remote_pull(repo: Repository, branch_name: str) -> None:
-    """
-    Pull the remote repository.
-
-    :param repo: Repo to pull
-    :param branch_name: Branch name
-    """
-    repo.remotes.origin.pull(branch_name)
 
 
 def main():
@@ -149,11 +152,11 @@ def main():
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            response = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
-            if response:
-                print(f'File updated successfully: {file_pattern}')
+            get_sha = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
+            if get_sha:
+                print(f'File updated successfully with SHA: {get_sha}')
             else:
-                print(f'File not updated: {file_pattern}')
+                print('File not updated.')
 
 
 main()
