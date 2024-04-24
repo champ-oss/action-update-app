@@ -9,7 +9,7 @@ import requests
 from pathlib import Path
 import os
 
-import git
+from git import Repo, Remote
 from github import Repository
 from tenacity import retry, wait_fixed, stop_after_attempt
 
@@ -62,12 +62,12 @@ def git_pull(repo_path: Path) -> None:
 
     :param repo_path: Repository path
     """
-    repo = git.Repo(repo_path)
+    repo = Remote.Repo(repo_path)
     # pull changes from the remote repository
     repo.git.pull()
 
 
-def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> git.Repo:
+def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
     """
     Clone the repository.
 
@@ -75,7 +75,7 @@ def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> gi
     :param destination_name: Destination name
     :param branch_name: Branch name
     """
-    repo = git.clone_from(repo_url, destination_name, branch=branch_name)
+    repo = Repo.clone_from(repo_url, destination_name, branch=branch_name)
     return repo
 
 
