@@ -121,6 +121,7 @@ def update_file(repo: Repository, branch_name: str, file_path: str, search_strin
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
 def main():
+
     app_id = os.environ.get('GITHUB_APP_ID')
     installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
@@ -152,15 +153,13 @@ def main():
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            update_file(repo, branch_name, file_pattern, search_string, gh_sha, get_repo, content)
-        else:
-            print(f'File {file_pattern} does not exist in the repository.')
-
-    # Clean up
-    os.remove('private.pem')
-    print('Successfully updated the file in the repository.')
-    # remove local directory
-    os.system(f'rm -rf {git_local_directory}')
+            get_sha = update_file(repo, branch_name, file_pattern, search_string, gh_sha, get_repo, content)
+            if get_sha:
+                print(f'File updated successfully: {file_pattern}')
+            else:
+                print(f'Error occurred while updating the file: {file_pattern}')
+                os.system(f'rm -rf {updated_file_path} || true')
+                raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
 main()
