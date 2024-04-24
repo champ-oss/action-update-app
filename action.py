@@ -3,6 +3,7 @@
 import json
 import subprocess
 import time
+import github.Auth
 import jwt
 import requests
 from pathlib import Path
@@ -84,27 +85,37 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
-def update_file(repo: Repository, file_path: str, content: str, search_string: str, gh_sha: str) -> bool:
+def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str, content: str = None) -> str:
     """
-    Update file in the repository.
+    Update a file in the repo.
 
-    :param repo: Repository
-    :param file_path: File path
-    :param search_string: Search string
-    :param gh_sha: GitHub SHA
-    :param content: Content
+    :param file_path: Path to file
+    :param repo: Repo to add file
+    :param search_string: search_string for message
+    :param content: Content of the file
+    :param gh_sha: gh sha for message.
+    :param branch_name: Name of branch
+    :return: SHA of the new commit
     """
-    # pull the latest changes
-    repo.remotes.origin.pull()
+    repo_remote_pull(repo, branch_name)
+    sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
-        # Get the file
-        file = repo.get_contents(file_path)
-        # Update the file
-        repo.update_file(file_path, f'Updated {search_string}-{gh_sha}', content, file.sha)
-        return True
+        response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
+                                    content=content, sha=sha, branch=branch_name)
     except Exception as e:
-        print(f'Error occurred: {e}')
-        raise e
+        print(f'Error occurred while updating the file: {e}')
+        raise
+    return response['commit'].sha
+
+
+def repo_remote_pull(repo: Repository, branch_name: str) -> None:
+    """
+    Pull the remote repository.
+
+    :param repo: Repo to pull
+    :param branch_name: Branch name
+    """
+    repo.remotes.origin.pull(branch_name)
 
 
 def main():
@@ -129,18 +140,20 @@ def main():
     # Clone repo
     repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
-    repo = git_clone_repo(repo_url, git_local_directory, branch_name)
+    git_clone_repo(repo_url, git_local_directory, branch_name)
+    github_client = github.Github(access_token)
+    repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
     for file_pattern in file_path_list:
         updated_file_path = Path(git_local_directory) / file_pattern
         find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            response = update_file(repo, file_pattern, content, search_string, gh_sha)
-            if response is True:
-                print(f'Updated file: {file_pattern}')
+            response = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
+            if response:
+                print(f'File updated successfully: {file_pattern}')
             else:
-                print(f'Failed to update file: {file_pattern}')
+                print(f'File not updated: {file_pattern}')
 
 
 main()
