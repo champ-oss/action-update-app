@@ -7,9 +7,9 @@ import github.Auth
 import jwt
 import requests
 from pathlib import Path
-from git import Repo
 import os
 
+from git import Repo, Remote
 from github import Repository
 from tenacity import retry, wait_fixed, stop_after_attempt
 
@@ -56,6 +56,16 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
     return access_token
 
 
+def git_pull(repo_path: Repo) -> None:
+    """
+    Pull the changes from the remote repository.
+
+    :param repo_path: Repository path
+    """
+    origin: Remote = repo_path.remotes.origin
+    origin.pull()
+
+
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
     """
     Clone the repository.
@@ -84,30 +94,34 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
     )
 
 
-@retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
-def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str, content: str = None) -> str:
+def update_file(repo: Repository, branch_name: str, file_path: str, search_string: str, gh_sha: str,
+                get_repo: Repo, content: str = None) -> str or None:
     """
     Update a file in the repo.
 
     :param file_path: Path to file
     :param repo: Repo to add file
+    :param get_repo: Repo to clone
     :param search_string: search_string for message
     :param content: Content of the file
     :param gh_sha: gh sha for message.
     :param branch_name: Name of branch
     :return: SHA of the new commit
     """
+    git_pull(get_repo)
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
         response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
                                     content=content, sha=sha, branch=branch_name)
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
-        raise
-    return response['commit'].sha
+        return False
+    return True
 
 
+@retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
 def main():
+
     app_id = os.environ.get('GITHUB_APP_ID')
     installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
@@ -124,13 +138,10 @@ def main():
     # write private key to file
     with open('private.pem', 'w') as file:
         file.write(updated_private_key)
-    # Get access token
     access_token = get_github_access_token(app_id, installation_id, 'private.pem')
-    # Clone repo
     repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
-    git_clone_repo(repo_url, git_local_directory, branch_name)
-    # Update file
+    get_repo = git_clone_repo(repo_url, git_local_directory, branch_name)
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
     for file_pattern in file_path_list:
@@ -139,11 +150,14 @@ def main():
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
-        else:
-            print(f'File {file_pattern} does not exist in the repository.')
-
-    print('File updated successfully.')
+            get_sha = update_file(repo, branch_name, file_pattern, search_string, gh_sha, get_repo, content)
+            if get_sha is True:
+                print(f'File updated successfully: {file_pattern}')
+            else:
+                print(f'Error occurred while updating the file: {file_pattern}')
+                # remove cloned repo
+                os.system(f'rm -rf {git_local_directory}')
+                raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
 main()
