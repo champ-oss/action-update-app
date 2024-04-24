@@ -3,6 +3,8 @@
 import json
 import subprocess
 import time
+from typing import Any
+
 import github.Auth
 import jwt
 import requests
@@ -85,7 +87,7 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 
 
 def update_file(repo: Repository, branch_name: str, file_path: str,
-                search_string: str, gh_sha: str, content: str = None) -> bool:
+                search_string: str, gh_sha: str, content: str = None) -> Any | None:
     """
     Update a file in the repo.
 
@@ -99,12 +101,12 @@ def update_file(repo: Repository, branch_name: str, file_path: str,
     """
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
-        repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
-                         content=content, sha=sha, branch=branch_name)
-        return True
+        response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
+                                content=content, sha=sha, branch=branch_name)
+        return response is not None
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
-        return False
+        return None
 
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
@@ -118,6 +120,7 @@ def main():
     search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_name_target)
+    os.system(f'rm -rf {git_local_directory} || true')
     file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
@@ -139,10 +142,10 @@ def main():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
             update_file_status = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
-            if update_file_status is True:
+            if update_file_status is not None:
                 print(f'File updated successfully: {file_pattern}')
             else:
-                os.system(f'rm -rf {git_local_directory}')
+                os.system(f'rm -rf {git_local_directory} || true')
                 raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
