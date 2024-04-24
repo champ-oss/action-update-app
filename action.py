@@ -142,8 +142,6 @@ def main():
         updated_file_path = Path(git_local_directory) / file_pattern
         find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
         if updated_file_path.exists():
-            with open(updated_file_path, 'r') as file:
-                content = file.read()
             update_file(search_string, gh_sha, get_repo)
         else:
             print(f'File {file_pattern} does not exist in the repository.')
