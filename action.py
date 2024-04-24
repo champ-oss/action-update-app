@@ -152,7 +152,7 @@ def main():
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
-            update_file(repo, branch_name, file_pattern, search_string, gh_sha, git_local_directory, get_repo, content)
+            update_file(repo, branch_name, file_pattern, search_string, gh_sha, get_repo, content)
         else:
             print(f'File {file_pattern} does not exist in the repository.')
 
