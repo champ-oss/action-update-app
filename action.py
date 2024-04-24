@@ -69,14 +69,14 @@ def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Re
     return repo
 
 
-def git_repo_pull(repo: Repo, branch_name: str) -> Remote:
+def git_repo_pull(repo: Repository, branch_name: str) -> Remote:
     """
     Pull the repository.
 
     :param repo: Repository
     :param branch_name: Branch name
     """
-    remote = repo.remotes.origin
+    remote = Remote(repo, 'origin')
     remote.pull(branch_name)
     return remote
 
