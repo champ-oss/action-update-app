@@ -39,6 +39,11 @@ def create_github_jwt(app_id: str, pem: str) -> str:
 def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
     """
     Get GitHub App access token.
+
+    :param app_id: GitHub App's identifier
+    :param installation_id: GitHub App's installation identifier
+    :param pem: Path to the private
+    :return: GitHub App access token
     """
     create_jwt = create_github_jwt(app_id, pem)
     response = requests.post(
@@ -56,6 +61,10 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
     """
     Clone the repository.
+
+    :param repo_url: Repository URL
+    :param destination_name: Destination name
+    :param branch_name: Branch name
     """
     repo = Repo.clone_from(repo_url, destination_name, branch=branch_name)
     return repo
@@ -64,6 +73,11 @@ def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Re
 def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
     """
     Find and replace pattern in file.
+
+    :param suffix: default is double quotes to end the line.
+    :param file_pattern: file_pattern
+    :param search_string: search_string
+    :param replace_string: replace_string to update
     """
     subprocess.call(
         [
@@ -78,16 +92,19 @@ def update_file(repo: Repository, branch_name: str, file_path: str,
                 search_string: str, gh_sha: str, content: str = None) -> Any | None:
     """
     Update a file in the repo.
+
+    :param file_path: Path to file
+    :param repo: Repo to add file
+    :param search_string: search_string for message
+    :param content: Content of the file
+    :param gh_sha: gh sha for message.
+    :param branch_name: Name of branch
+    :return: SHA of the new commit
     """
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
-        response = repo.update_file(
-            path=file_path,
-            message=f'updated {search_string}-{gh_sha}',
-            content=content,
-            sha=sha,
-            branch=branch_name
-        )
+        response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
+                                    content=content, sha=sha, branch=branch_name)
         return response is not None
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
@@ -96,6 +113,7 @@ def update_file(repo: Repository, branch_name: str, file_path: str,
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
 def main():
+
     app_id = os.environ.get('GITHUB_APP_ID')
     installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
@@ -110,19 +128,15 @@ def main():
     suffix = os.environ.get('SUFFIX', '"')
     gh_sha = os.environ.get('GITHUB_SHA')
     replace_value = os.environ.get('REPLACE_VALUE', gh_sha)
-
     # write private key to file
     with open('private.pem', 'w') as file:
         file.write(updated_private_key)
-
     access_token = get_github_access_token(app_id, installation_id, 'private.pem')
     repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
     git_clone_repo(repo_url, git_local_directory, branch_name)
-
     github_client = github.Github(access_token)
     repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
-
     for file_pattern in file_path_list:
         updated_file_path = Path(git_local_directory) / file_pattern
         find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
