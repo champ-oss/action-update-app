@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # Description: This action is used to update the file in the github repository.
 import json
+import subprocess
 import time
 from typing import Any
-import os
-from pathlib import Path
 
 import github.Auth
 import jwt
 import requests
+from pathlib import Path
+import os
+
 from git import Repo
 from github import Repository
 from tenacity import retry, wait_fixed, stop_after_attempt
@@ -17,6 +19,10 @@ from tenacity import retry, wait_fixed, stop_after_attempt
 def create_github_jwt(app_id: str, pem: str) -> str:
     """
     Create GitHub JWT.
+
+    :param app_id: GitHub App's identifier
+    :param pem: Path to the private
+    :return: GitHub JWT
     """
     time_now = int(time.time())
     payload = {
@@ -43,7 +49,8 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
         }
     )
     response.raise_for_status()
-    return response.json()['token']
+    access_token = response.json()['token']
+    return access_token
 
 
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
@@ -56,21 +63,15 @@ def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Re
 
 def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
     """
-    Find and replace lines starting with 'search_string:' using plain Python.
-    No regex, no sed.
+    Find and replace pattern in file.
     """
-    file_path = Path(file_pattern)
-    new_lines = []
-
-    with open(file_path, "r") as f:
-        for line in f:
-            if line.strip().startswith(f"{search_string}:"):
-                new_lines.append(f"{search_string}:{replace_string}{suffix}\n")
-            else:
-                new_lines.append(line)
-
-    with open(file_path, "w") as f:
-        f.writelines(new_lines)
+    subprocess.call(
+        [
+            'sed', '-i', '-e',
+            f's|{search_string}:.*|{search_string}:{replace_string}{suffix}|g',
+            str(file_pattern)
+        ]
+    )
 
 
 def update_file(repo: Repository, branch_name: str, file_path: str,
@@ -79,12 +80,6 @@ def update_file(repo: Repository, branch_name: str, file_path: str,
     Update a file in the repo.
     """
     sha = repo.get_contents(file_path, ref=branch_name).sha
-    current_content = repo.get_contents(file_path, ref=branch_name).decoded_content.decode()
-
-    if current_content == content:
-        print(f"No changes detected in {file_path}, skipping commit.")
-        return None
-
     try:
         response = repo.update_file(
             path=file_path,
@@ -110,7 +105,6 @@ def main():
     repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_name_target)
     os.system(f'rm -rf {git_local_directory} || true')
-
     file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     suffix = os.environ.get('SUFFIX', '"')
@@ -132,16 +126,15 @@ def main():
     for file_pattern in file_path_list:
         updated_file_path = Path(git_local_directory) / file_pattern
         find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
-
         if updated_file_path.exists():
             with open(updated_file_path, 'r') as file:
                 content = file.read()
             update_file_status = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
-            if update_file_status:
+            if update_file_status is not None:
                 print(f'File updated successfully: {file_pattern}')
             else:
-                print(f'Skipped updating {file_pattern} (no changes or error).')
+                os.system(f'rm -rf {git_local_directory} || true')
+                raise Exception(f'Error occurred while updating the file: {file_pattern}')
 
 
-if __name__ == "__main__":
-    main()
+main()
