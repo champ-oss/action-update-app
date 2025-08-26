@@ -81,7 +81,9 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
     """
     subprocess.call(
         [
-            'sed', '-i', '-e', f's/{search_string}:.*/{search_string}:{replace_string}{suffix}/g', file_pattern
+            'sed', '-i', '-e',
+            f's|{search_string}:.*|{search_string}:{replace_string}{suffix}|g',
+            str(file_pattern)
         ]
     )
 
@@ -102,7 +104,7 @@ def update_file(repo: Repository, branch_name: str, file_path: str,
     sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
         response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
-                                content=content, sha=sha, branch=branch_name)
+                                    content=content, sha=sha, branch=branch_name)
         return response is not None
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
