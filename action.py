@@ -1,87 +1,93 @@
 #!/usr/bin/env python3
-# Description: Update files in GitHub repo using GitHub App token with rebase + retry
-
 import json
-import subprocess
-import time
 import os
+import time
 from pathlib import Path
 
-def run(cmd, cwd=None, check=True):
-    """Run shell command via subprocess."""
-    print(f"Running: {cmd}")
-    result = subprocess.run(cmd, shell=True, cwd=cwd)
-    if check and result.returncode != 0:
-        raise Exception(f"Command failed: {cmd}")
-    return result
+import github
+import jwt
+import requests
+from tenacity import retry, wait_fixed, stop_after_attempt
 
-def find_replace_file_pattern(search_string: str, replace_string: str, file_path: Path, suffix: str):
-    """Update the file in-place using sed-style replacement."""
-    run(f'sed -i "s/{search_string}:.*$/{search_string}:{replace_string}{suffix}/" {file_path}')
+# -----------------------------
+# GitHub App Authentication
+# -----------------------------
+def create_github_jwt(app_id: str, pem_path: str) -> str:
+    import time
+    with open(pem_path, 'r') as f:
+        private_key = f.read()
+    payload = {
+        'iat': int(time.time()),
+        'exp': int(time.time()) + 600,  # 10 minutes
+        'iss': app_id
+    }
+    return jwt.encode(payload, private_key, algorithm='RS256')
 
-def git_push_with_rebase(repo_dir: str, branch_name: str, max_attempts: int = 5, delay: int = 5):
-    """Push changes with automatic rebase retry if push fails."""
+
+def get_github_app_installation_token(app_id: str, installation_id: str, pem_path: str) -> str:
+    jwt_token = create_github_jwt(app_id, pem_path)
+    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+    headers = {"Authorization": f"Bearer {jwt_token}", "Accept": "application/vnd.github+json"}
+    resp = requests.post(url, headers=headers)
+    resp.raise_for_status()
+    return resp.json()["token"]
+
+# -----------------------------
+# File update with SHA retry
+# -----------------------------
+def update_file_with_retry(repo, branch, file_path, new_content, max_attempts=5):
+    """
+    Update a file safely via GitHub API using SHA retry.
+    """
     for attempt in range(1, max_attempts + 1):
         try:
-            run(f"git push origin {branch_name}", cwd=repo_dir)
-            print("Push successful")
-            return
-        except Exception as e:
-            print(f"Push failed on attempt {attempt}: {e}")
-            print("Attempting rebase...")
-            run(f"git pull --rebase origin {branch_name}", cwd=repo_dir)
-            time.sleep(delay)
-    raise Exception(f"Failed to push after {max_attempts} attempts")
+            file_info = repo.get_contents(file_path, ref=branch)
+            sha = file_info.sha
+            repo.update_file(
+                path=file_path,
+                message=f"Update {file_path}",
+                content=new_content,
+                sha=sha,
+                branch=branch
+            )
+            print(f"[SUCCESS] File updated: {file_path}")
+            return True
+        except github.GithubException as e:
+            if e.status == 409:  # Conflict: SHA mismatch
+                print(f"[RETRY] SHA conflict for {file_path}, attempt {attempt}/{max_attempts}")
+                time.sleep(2)
+                continue
+            else:
+                raise
+    raise Exception(f"Failed to update {file_path} after {max_attempts} attempts")
 
+# -----------------------------
+# Main action
+# -----------------------------
 def main():
-    branch_name = os.environ.get('BRANCH', 'main')
-    repo_owner_target = os.environ.get('GITHUB_REPOSITORY').split('/')[0]
-    repo_name_target = os.environ.get('GITHUB_REPOSITORY').split('/')[1]
-    repo_dir = os.environ.get('GIT_LOCAL_DIRECTORY', repo_name_target)
-    search_string = os.environ.get('SEARCH_KEY', repo_name_target)
-    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
-    gh_sha = os.environ.get('GITHUB_SHA')
-    replace_value = os.environ.get('REPLACE_VALUE', gh_sha)
-    suffix = os.environ.get('SUFFIX', '"')
+    app_id = os.environ.get("GITHUB_APP_ID")
+    installation_id = os.environ.get("GITHUB_INSTALLATION_ID")
+    private_key = os.environ.get("GITHUB_APP_PRIVATE_KEY")
+    branch_name = os.environ.get("BRANCH", "main")
+    repo_name_target = os.environ.get("GITHUB_REPO_TARGET")
+    repo_owner_target = os.environ.get("GITHUB_REPOSITORY").split("/")[0]
+    file_path_list = json.loads(os.environ["FILE_PATH_LIST"])
+    replace_value = os.environ.get("REPLACE_VALUE", "")
 
-    github_token = os.environ.get('GITHUB_APP_TOKEN')
-    if not github_token:
-        raise Exception("GITHUB_APP_TOKEN not found in environment")
+    # Write private key to file for JWT
+    with open("private.pem", "w") as f:
+        f.write(private_key.replace("\\n", "\n").strip('"'))
 
-    repo_url = f"https://x-access-token:{github_token}@github.com/{repo_owner_target}/{repo_name_target}.git"
+    token = get_github_app_installation_token(app_id, installation_id, "private.pem")
+    gh = github.Github(token)
+    repo = gh.get_repo(f"{repo_owner_target}/{repo_name_target}")
 
-    # Clean workspace
-    if os.path.exists(repo_dir):
-        run(f"rm -rf {repo_dir}")
-
-    # Clone repo
-    run(f"git clone {repo_url} {repo_dir} --branch {branch_name}")
-
-    # Update files
-    files_changed = False
     for file_pattern in file_path_list:
-        file_path = Path(repo_dir) / file_pattern
-        if not file_path.exists():
-            print(f"File not found: {file_path}")
-            continue
-        find_replace_file_pattern(search_string, replace_value, file_path, suffix)
-        # Check if file content changed
-        diff = subprocess.run(f"git diff {file_path}", shell=True, cwd=repo_dir)
-        if diff.returncode == 1:  # git diff returns 1 if changes exist
-            files_changed = True
-            print(f"File modified: {file_pattern}")
-
-    if files_changed:
-        # Commit changes
-        run("git add .", cwd=repo_dir)
-        commit_message = f"Update {search_string}-{gh_sha}"
-        run(f"git commit -m \"{commit_message}\"", cwd=repo_dir)
-        print(f"Committed changes: {commit_message}")
-
-        # Push with rebase retry
-        git_push_with_rebase(repo_dir, branch_name)
-    else:
-        print("No changes detected. Nothing to commit.")
+        file_path = Path(file_pattern)
+        file_info = repo.get_contents(file_pattern, ref=branch_name)
+        content = file_info.decoded_content.decode()
+        updated_content = content.replace(file_pattern.split("/")[-1], replace_value)
+        update_file_with_retry(repo, branch_name, file_pattern, updated_content)
 
 if __name__ == "__main__":
     main()
