@@ -53,11 +53,13 @@ def find_replace_git_sha(file_path: Path, image_prefix: str, new_sha: str) -> bo
     """
     content = file_path.read_text()
 
+    # Match the prefix and any SHA after colon
     escaped_prefix = re.escape(image_prefix)
-    pattern = rf'({escaped_prefix}:)[a-f0-9]+'
-    replacement = rf'\1{new_sha}'
+    pattern = rf'{escaped_prefix}:[a-f0-9]+'
 
-    new_content = re.sub(pattern, replacement, content)
+    # Use a lambda to avoid backreference interpretation
+    new_content = re.sub(pattern, lambda m: f"{image_prefix}:{new_sha}", content)
+
     if new_content != content:
         file_path.write_text(new_content)
         return True
