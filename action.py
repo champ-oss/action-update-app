@@ -1,152 +1,131 @@
 #!/usr/bin/env python3
-# Description: This action is used to update the file in the github repository.
-import json
-import subprocess
-import time
-from typing import Any
+"""
+GitHub Action: Find & replace in files, commit, and push to branch.
+"""
 
-import github.Auth
+import os
+import re
+import time
+import shutil
+from pathlib import Path
+import json
+
 import jwt
 import requests
-from pathlib import Path
-import os
-
-from git import Repo
-from github import Repository
+from git import Repo, GitCommandError
 from tenacity import retry, wait_fixed, stop_after_attempt
 
 
-def create_github_jwt(app_id: str, pem: str) -> str:
-    """
-    Create GitHub JWT.
-
-    :param app_id: GitHub App's identifier
-    :param pem: Path to the private
-    :return: GitHub JWT
-    """
+def create_github_jwt(app_id: str, private_key: str) -> str:
+    """Create GitHub JWT"""
     time_now = int(time.time())
     payload = {
         'iat': time_now,
-        'exp': time_now + (10 * 60),
+        'exp': time_now + 600,  # 10 minutes
         'iss': app_id
     }
-    with open(pem, 'r') as file:
-        private_key = file.read()
-    jwt_token = jwt.encode(payload, private_key, algorithm='RS256')
-    return jwt_token
+    token = jwt.encode(payload, private_key, algorithm='RS256')
+    return token
 
 
-def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
-    """
-    Get GitHub App access token.
-
-    :param app_id: GitHub App's identifier
-    :param installation_id: GitHub App's installation identifier
-    :param pem: Path to the private
-    :return: GitHub App access token
-    """
-    create_jwt = create_github_jwt(app_id, pem)
-    response = requests.post(
-        f'https://api.github.com/app/installations/{installation_id}/access_tokens',
-        headers={
-            'Authorization': f'Bearer {create_jwt}',
-            'Accept': 'application/vnd.github+json'
-        }
-    )
+def get_github_access_token(app_id: str, installation_id: str, private_key: str) -> str:
+    """Get GitHub App access token"""
+    jwt_token = create_github_jwt(app_id, private_key)
+    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+    headers = {
+        "Authorization": f"Bearer {jwt_token}",
+        "Accept": "application/vnd.github+json"
+    }
+    response = requests.post(url, headers=headers)
     response.raise_for_status()
-    access_token = response.json()['token']
-    return access_token
+    return response.json()['token']
 
 
-def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
+def find_replace_file_pattern(search_string: str, replace_string: str, file_path: Path, suffix: str = '"') -> bool:
+    """Find & replace a pattern in a file"""
+    content = file_path.read_text()
+    pattern = rf"({re.escape(search_string)}:).*"
+    replacement = rf"\1{replace_string}{suffix}"
+    updated_content = re.sub(pattern, replacement, content)
+    if updated_content != content:
+        file_path.write_text(updated_content)
+        return True
+    return False
+
+
+def update_file_git(repo_path: str, file_path: Path, commit_message: str, branch_name: str = "main") -> None:
     """
-    Clone the repository.
-
-    :param repo_url: Repository URL
-    :param destination_name: Destination name
-    :param branch_name: Branch name
+    Commit and push a file using GitPython, safely rebasing first.
+    If a rebase conflict occurs, abort rebase and clean the repo directory.
     """
-    repo = Repo.clone_from(repo_url, destination_name, branch=branch_name)
-    return repo
+    repo = Repo(repo_path)
+    repo.git.checkout(branch_name)
 
-
-def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
-    """
-    Find and replace pattern in file.
-
-    :param suffix: default is double quotes to end the line.
-    :param file_pattern: file_pattern
-    :param search_string: search_string
-    :param replace_string: replace_string to update
-    """
-    subprocess.call(
-        [
-            'sed', '-i', '-e', f's/{search_string}:.*/{search_string}:{replace_string}{suffix}/g', file_pattern
-        ]
-    )
-
-
-def update_file(repo: Repository, branch_name: str, file_path: str,
-                search_string: str, gh_sha: str, content: str = None) -> Any | None:
-    """
-    Update a file in the repo.
-
-    :param file_path: Path to file
-    :param repo: Repo to add file
-    :param search_string: search_string for message
-    :param content: Content of the file
-    :param gh_sha: gh sha for message.
-    :param branch_name: Name of branch
-    :return: SHA of the new commit
-    """
-    sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
-        response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
-                                content=content, sha=sha, branch=branch_name)
-        return response is not None
-    except Exception as e:
-        print(f'Error occurred while updating the file: {e}')
-        return None
+        # Pull with rebase
+        repo.git.pull('--rebase')
+        # Stage file and commit
+        repo.index.add([str(file_path)])
+        repo.index.commit(commit_message)
+        repo.remote().push()
+    except GitCommandError as e:
+        # Detect rebase conflict
+        if 'CONFLICT' in str(e) or 'rebase' in str(e):
+            print(f"Rebase conflict detected: {e}")
+            try:
+                repo.git.rebase('--abort')
+            except GitCommandError:
+                pass
+            # Clean local repo to allow retry
+            print(f"Cleaning local repo due to conflict: {repo_path}")
+            shutil.rmtree(repo_path)
+            raise RuntimeError(f"Rebase failed and local repo cleaned: {e}")
+        else:
+            raise
 
 
-@retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
+@retry(wait=wait_fixed(4), stop=stop_after_attempt(10))
 def main():
-
-    app_id = os.environ.get('GITHUB_APP_ID')
-    installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
-    private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
+    # Environment variables
+    app_id = os.environ['GITHUB_APP_ID']
+    installation_id = os.environ['GITHUB_INSTALLATION_ID']
+    private_key = os.environ['GITHUB_APP_PRIVATE_KEY'].replace('\\n', '\n')
     branch_name = os.environ.get('BRANCH', 'main')
-    repo_owner_target = os.environ.get('GITHUB_REPOSITORY').split('/')[0]
-    search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
-    repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
-    git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_name_target)
-    os.system(f'rm -rf {git_local_directory} || true')
-    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
-    updated_private_key = private_key.replace('\\n', '\n').strip('"')
+    repo_owner = os.environ['GITHUB_REPOSITORY'].split('/')[0]
+    repo_name = os.environ['GITHUB_REPO_TARGET']
+    git_local_dir = Path(os.environ.get('GIT_LOCAL_DIRECTORY', repo_name))
+    search_key = os.environ.get('SEARCH_KEY', repo_name)
     suffix = os.environ.get('SUFFIX', '"')
     gh_sha = os.environ.get('GITHUB_SHA')
     replace_value = os.environ.get('REPLACE_VALUE', gh_sha)
-    # write private key to file
-    with open('private.pem', 'w') as file:
-        file.write(updated_private_key)
-    access_token = get_github_access_token(app_id, installation_id, 'private.pem')
-    repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
-    print(f'Cloning repo: {repo_url} to {git_local_directory}')
-    git_clone_repo(repo_url, git_local_directory, branch_name)
-    github_client = github.Github(access_token)
-    repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
+    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
+
+    # Clean local directory
+    if git_local_dir.exists():
+        shutil.rmtree(git_local_dir)
+
+    # Clone repo
+    access_token = get_github_access_token(app_id, installation_id, private_key)
+    repo_url = f"https://x-access-token:{access_token}@github.com/{repo_owner}/{repo_name}.git"
+    print(f"Cloning repo to {git_local_dir}")
+    Repo.clone_from(repo_url, git_local_dir, branch=branch_name)
+
+    # Update files
     for file_pattern in file_path_list:
-        updated_file_path = Path(git_local_directory) / file_pattern
-        find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
-        if updated_file_path.exists():
-            with open(updated_file_path, 'r') as file:
-                content = file.read()
-            update_file_status = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
-            if update_file_status is not None:
-                print(f'File updated successfully: {file_pattern}')
-            else:
-                os.system(f'rm -rf {git_local_directory} || true')
-                raise Exception(f'Error occurred while updating the file: {file_pattern}')
+        file_path = git_local_dir / file_pattern
+        if not file_path.exists():
+            print(f"File not found: {file_path}, skipping")
+            continue
+
+        updated = find_replace_file_pattern(search_key, replace_value, file_path, suffix)
+        if updated:
+            commit_message = f"Update {search_key}-{gh_sha}"
+            update_file_git(str(git_local_dir), file_path, commit_message, branch_name)
+            print(f"Updated & pushed: {file_pattern}")
+        else:
+            print(f"No changes for: {file_pattern}")
 
 
-main()
+if __name__ == "__main__":
+    main()
+
