@@ -41,16 +41,22 @@ def get_github_access_token(app_id: str, installation_id: str, private_key: str)
     return response.json()['token']
 
 
-def find_replace_file_pattern(search_string: str, replace_string: str, file_path: Path, suffix: str = '"') -> bool:
-    """Find & replace a pattern in a file"""
-    content = file_path.read_text()
-    pattern = rf"({re.escape(search_string)}:).*"
-    replacement = rf"\1{replace_string}{suffix}"
-    updated_content = re.sub(pattern, replacement, content)
-    if updated_content != content:
-        file_path.write_text(updated_content)
-        return True
-    return False
+def find_replace_file_pattern(prefix: str, new_sha: str, file_path: str, suffix: str) -> bool:
+    updated = False
+    with open(file_path, "r") as f:
+        content = f.read()
+
+    # regex: capture prefix and swap only the SHA part
+    pattern = rf'({re.escape(prefix)}:)[a-f0-9]+'
+    replacement = rf'\1{new_sha}'
+    new_content = re.sub(pattern, replacement, content)
+
+    if new_content != content:
+        with open(file_path, "w") as f:
+            f.write(new_content)
+        updated = True
+
+    return updated
 
 
 def update_file_git(repo_path: str, file_path: Path, commit_message: str, branch_name: str = "main") -> None:
