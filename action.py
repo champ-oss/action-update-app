@@ -1,92 +1,81 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import os
 import subprocess
-from pathlib import Path
+import sys
 import json
-import re
+from pathlib import Path
+import logging
 from git import Repo, GitCommandError
-from tenacity import retry, stop_after_attempt, wait_fixed
+
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
 
-def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
+def find_replace_file_pattern(search_string: str, replace_string: str, file_path: str, suffix: str = '"') -> bool:
+    """Find and replace a line starting with search_string: in file. Returns True if file changed."""
+    file = Path(file_path)
+    if not file.exists():
+        logging.error("File does not exist: %s", file)
+        return False
+
+    # Escape slashes in git SHA
     safe_replace = replace_string.replace("/", "\\/")
-    subprocess.call(
-        [
-            'sed', '-i', '-e', f's/{search_string}:.*/{search_string}:{safe_replace}{suffix}/g', file_pattern
-        ]
-    )
+    sed_expr = f's/{search_string}:.*/{search_string}:{safe_replace}{suffix}/g'
+
+    before = file.read_text()
+    subprocess.call(['sed', '-i', '-e', sed_expr, str(file)])
+    after = file.read_text()
+
+    if before != after:
+        logging.info("Updated %s successfully", file)
+        return True
+    logging.info("No changes for %s", file)
+    return False
 
 
-def find_replace_with_sed(search_string: str, replace_string: str, file_path: Path, suffix: str = "\"") -> bool:
-    """
-    Alternative using `sed` for in-place replacement.
-    Returns True if sed made a change.
-    """
-    before = file_path.read_text()
-    subprocess.call([
-        "sed", "-i",
-        f"s/{search_string}:.*/{search_string}:{replace_string}{suffix}/g",
-        str(file_path)
-    ])
-    after = file_path.read_text()
-    return before != after
-
-
-def commit_and_push(repo_path: Path, file_path: Path, commit_message: str, branch_name: str = "main"):
-    """Commit and push changes to git, handling conflicts."""
-    repo = Repo(repo_path)
+def commit_and_push(repo_dir: str, files: list[Path], branch_name: str = "main"):
+    """Commit and push changes to the branch."""
+    repo = Repo(repo_dir)
     repo.git.checkout(branch_name)
 
     try:
         repo.git.pull("--rebase")
-        rel_path = str(file_path.relative_to(repo_path))
-        repo.index.add([rel_path])
-        repo.index.commit(commit_message)
+        rel_paths = [str(f.relative_to(repo_dir)) for f in files]
+        repo.index.add(rel_paths)
+        repo.index.commit(f"Updated files: {', '.join(rel_paths)}")
         repo.remote().push()
-        print(f"[INFO] Successfully pushed changes for {rel_path}")
+        logging.info("Changes pushed successfully")
     except GitCommandError as e:
-        if "CONFLICT" in str(e) or "rebase" in str(e):
-            print(f"[ERROR] Rebase conflict detected: {e}")
-            try:
-                repo.git.rebase("--abort")
-            except GitCommandError:
-                pass
-            raise RuntimeError(f"Rebase failed: {e}")
-        else:
-            raise
+        logging.error("Git error: %s", e)
+        try:
+            repo.git.rebase("--abort")
+        except GitCommandError:
+            pass
+        sys.exit(1)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(5))
 def main():
-    repo_path = Path(os.getcwd())  # current workspace from actions/checkout
+    repo_dir = Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd()))
     file_path_list = json.loads(os.environ.get("FILE_PATH_LIST", "[]"))
-    search_key = os.environ.get("SEARCH_KEY")
-    replace_value = os.environ.get("REPLACE_VALUE", os.environ.get("GITHUB_SHA"))
+    search_string = os.environ.get("SEARCH_STRING", "git_sha")
+    replace_string = os.environ.get("REPLACE_STRING")
     branch_name = os.environ.get("BRANCH", "develop")
-    suffix = os.environ.get("SUFFIX", "\"")
+    suffix = os.environ.get("SUFFIX", '"')
 
-    if not file_path_list:
-        raise ValueError("FILE_PATH_LIST must be set")
+    if not replace_string or not file_path_list:
+        logging.error("REPLACE_STRING and FILE_PATH_LIST must be set")
+        sys.exit(1)
 
     changed_files = []
 
-    for file_path_str in file_path_list:
-        file_path = repo_path / file_path_str
-        print(f"[INFO] Processing file: {file_path}")
-
-        updated = find_replace_file_pattern(search_key, replace_value, file_path, suffix)
-        if not updated:
-            updated = find_replace_with_sed(search_key, replace_value, file_path, suffix)
-
-        if updated:
-            changed_files.append(file_path)
+    for rel_path in file_path_list:
+        abs_path = repo_dir / rel_path
+        if find_replace_file_pattern(search_string, replace_string, abs_path, suffix):
+            changed_files.append(abs_path)
 
     if changed_files:
-        commit_msg = f"{search_key}{replace_value}"
-        for file_path in changed_files:
-            commit_and_push(repo_path, file_path, commit_msg, branch_name)
+        commit_and_push(repo_dir, changed_files, branch_name)
     else:
-        print("No changes to commit.")
+        logging.info("No changes to commit")
 
 
 if __name__ == "__main__":
