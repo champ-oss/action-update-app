@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Description: This action updates files in a GitHub repo with rebase support on conflicts.
+# Description: Update files in GitHub repo with automatic rebase retry on conflicts
 
 import json
 import subprocess
@@ -17,25 +17,18 @@ from tenacity import retry, wait_fixed, stop_after_attempt
 
 def create_github_jwt(app_id: str, pem: str) -> str:
     time_now = int(time.time())
-    payload = {
-        'iat': time_now,
-        'exp': time_now + (10 * 60),
-        'iss': app_id
-    }
+    payload = {'iat': time_now, 'exp': time_now + 600, 'iss': app_id}
     with open(pem, 'r') as file:
         private_key = file.read()
-    jwt_token = jwt.encode(payload, private_key, algorithm='RS256')
-    return jwt_token
+    return jwt.encode(payload, private_key, algorithm='RS256')
 
 
 def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
-    create_jwt = create_github_jwt(app_id, pem)
+    jwt_token = create_github_jwt(app_id, pem)
     response = requests.post(
         f'https://api.github.com/app/installations/{installation_id}/access_tokens',
-        headers={
-            'Authorization': f'Bearer {create_jwt}',
-            'Accept': 'application/vnd.github+json'
-        }
+        headers={'Authorization': f'Bearer {jwt_token}',
+                 'Accept': 'application/vnd.github+json'}
     )
     response.raise_for_status()
     return response.json()['token']
@@ -47,42 +40,28 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_path
     )
 
 
-def update_file(repo, branch_name: str, file_path: str, search_string: str, gh_sha: str, content: str = None) -> Any | None:
-    sha = repo.get_contents(file_path, ref=branch_name).sha
-    try:
-        response = repo.update_file(
-            path=file_path,
-            message=f'updated {search_string}-{gh_sha}',
-            content=content,
-            sha=sha,
-            branch=branch_name
-        )
-        return response is not None
-    except Exception as e:
-        print(f'Error updating {file_path}: {e}')
-        return None
-
-
-def git_commit_and_rebase(repo_dir: str, branch_name: str, commit_message: str):
-    repo = Repo(repo_dir)
-    try:
-        repo.git.add(all=True)
-        repo.index.commit(commit_message)
-        print(f'Committed changes: {commit_message}')
+def git_push_with_rebase(repo: Repo, branch_name: str, max_attempts: int = 5, delay: int = 5):
+    """
+    Try to push changes, rebase if push fails, retry up to max_attempts.
+    """
+    for attempt in range(1, max_attempts + 1):
         try:
-            repo.git.pull('--rebase', 'origin', branch_name)
-            print('Rebase successful')
+            repo.git.push('origin', branch_name)
+            print("Push successful")
+            return
         except GitCommandError as e:
-            print(f'Rebase failed: {e}')
-            raise e
-        repo.git.push('origin', branch_name)
-        print('Push successful')
-    except GitCommandError as e:
-        print(f'Git operation failed: {e}')
-        raise e
+            print(f"Push failed on attempt {attempt}: {e}")
+            try:
+                repo.git.pull('--rebase', 'origin', branch_name)
+                print(f"Rebase successful, retrying push in {delay}s...")
+                time.sleep(delay)
+            except GitCommandError as rebase_err:
+                print(f"Rebase failed: {rebase_err}")
+                raise rebase_err
+    raise Exception(f"Failed to push after {max_attempts} attempts")
 
 
-@retry(wait=wait_fixed(5), stop=stop_after_attempt(5))
+@retry(wait=wait_fixed(5), stop=stop_after_attempt(3))
 def main():
     app_id = os.environ.get('GITHUB_APP_ID')
     installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
@@ -97,10 +76,12 @@ def main():
     replace_value = os.environ.get('REPLACE_VALUE', gh_sha)
     suffix = os.environ.get('SUFFIX', '"')
 
+    # Prepare private key
     updated_private_key = private_key.replace('\\n', '\n').strip('"')
     with open('private.pem', 'w') as f:
         f.write(updated_private_key)
 
+    # GitHub access
     access_token = get_github_access_token(app_id, installation_id, 'private.pem')
     repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
 
@@ -109,27 +90,21 @@ def main():
         subprocess.call(['rm', '-rf', git_local_directory])
 
     print(f'Cloning repo {repo_url} to {git_local_directory}')
-    Repo.clone_from(repo_url, git_local_directory, branch=branch_name)
-
-    github_client = github.Github(access_token)
-    repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
+    repo = Repo.clone_from(repo_url, git_local_directory, branch=branch_name)
 
     # Update files
     for file_pattern in file_path_list:
-        updated_file_path = Path(git_local_directory) / file_pattern
-        find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
-        if updated_file_path.exists():
-            with open(updated_file_path, 'r') as f:
-                content = f.read()
-            update_file_status = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
-            if update_file_status:
-                print(f'File updated successfully: {file_pattern}')
-            else:
-                raise Exception(f'Failed to update file: {file_pattern}')
+        file_path = Path(git_local_directory) / file_pattern
+        find_replace_file_pattern(search_string, replace_value, file_path, suffix)
 
-    # Commit, rebase, and push
-    commit_message = f'Update {search_string}-{gh_sha}'
-    git_commit_and_rebase(git_local_directory, branch_name, commit_message)
+    # Commit changes
+    repo.git.add(all=True)
+    commit_message = f"Update {search_string}-{gh_sha}"
+    repo.index.commit(commit_message)
+    print(f"Committed changes: {commit_message}")
+
+    # Push with rebase retry
+    git_push_with_rebase(repo, branch_name)
 
 
 if __name__ == '__main__':
