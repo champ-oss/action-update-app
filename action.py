@@ -14,6 +14,7 @@ import requests
 from tenacity import retry, wait_fixed, stop_after_attempt
 import re
 
+
 # -------------------------------
 # GitHub App Auth
 # -------------------------------
@@ -37,21 +38,22 @@ def get_github_access_token(app_id: str, installation_id: str, private_key: str)
 # -------------------------------
 def update_file_docker_sha(file_path: Path, image_name: str, new_sha: str) -> bool:
     """
-    Replace Docker SHA after image_name in a line containing the image URL.
-    Handles quotes correctly for tfvars files.
+    Replace Docker SHA after image_name in lines like:
+    "16801357.../image_name:oldsha"
+    Handles quotes and only replaces the SHA portion.
     """
     content = file_path.read_text()
     changed = False
 
-    def replace_line(match):
-        nonlocal changed
-        prefix = match.group(1)
-        changed = True
-        return f'{prefix}{new_sha}"' if match.group(0).endswith('"') else f'{prefix}{new_sha}'
+    # Pattern: match image_name:SHA, possibly ending with quote
+    pattern = rf'({re.escape(image_name)}:)[a-f0-9]+("?)'
 
-    # Matches lines like .../image_name:SHA"
-    pattern = rf'({re.escape(image_name)}:)[a-f0-9]+("?)(?=\s*$|")'
-    new_content = re.sub(pattern, replace_line, content)
+    def replacer(match):
+        nonlocal changed
+        changed = True
+        return f"{match.group(1)}{new_sha}{match.group(2)}"  # preserves trailing quote
+
+    new_content = re.sub(pattern, replacer, content)
 
     if changed:
         file_path.write_text(new_content)
