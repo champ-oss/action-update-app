@@ -1,37 +1,14 @@
 #!/usr/bin/env python3
-# Description: Update files in GitHub repo with automatic rebase retry on conflicts
+# Description: Update files in GitHub repo with automatic rebase retry using GITHUB_TOKEN
 
 import json
 import subprocess
 import time
 import os
 from pathlib import Path
-from typing import Any
 
-import jwt
-import requests
-import github
 from git import Repo, GitCommandError
 from tenacity import retry, wait_fixed, stop_after_attempt
-
-
-def create_github_jwt(app_id: str, pem: str) -> str:
-    time_now = int(time.time())
-    payload = {'iat': time_now, 'exp': time_now + 600, 'iss': app_id}
-    with open(pem, 'r') as file:
-        private_key = file.read()
-    return jwt.encode(payload, private_key, algorithm='RS256')
-
-
-def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
-    jwt_token = create_github_jwt(app_id, pem)
-    response = requests.post(
-        f'https://api.github.com/app/installations/{installation_id}/access_tokens',
-        headers={'Authorization': f'Bearer {jwt_token}',
-                 'Accept': 'application/vnd.github+json'}
-    )
-    response.raise_for_status()
-    return response.json()['token']
 
 
 def find_replace_file_pattern(search_string: str, replace_string: str, file_path: Path, suffix: str):
@@ -63,27 +40,22 @@ def git_push_with_rebase(repo: Repo, branch_name: str, max_attempts: int = 5, de
 
 @retry(wait=wait_fixed(5), stop=stop_after_attempt(3))
 def main():
-    app_id = os.environ.get('GITHUB_APP_ID')
-    installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
-    private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
     branch_name = os.environ.get('BRANCH', 'main')
     repo_owner_target = os.environ.get('GITHUB_REPOSITORY').split('/')[0]
-    repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
+    repo_name_target = os.environ.get('GITHUB_REPOSITORY').split('/')[1]
     git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_name_target)
-    search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
+    search_string = os.environ.get('SEARCH_KEY', repo_name_target)
     file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     gh_sha = os.environ.get('GITHUB_SHA')
     replace_value = os.environ.get('REPLACE_VALUE', gh_sha)
     suffix = os.environ.get('SUFFIX', '"')
 
-    # Prepare private key
-    updated_private_key = private_key.replace('\\n', '\n').strip('"')
-    with open('private.pem', 'w') as f:
-        f.write(updated_private_key)
+    # Use GITHUB_TOKEN for authentication
+    github_token = os.environ.get('GITHUB_TOKEN')
+    if not github_token:
+        raise Exception("GITHUB_TOKEN not found in environment")
 
-    # GitHub access
-    access_token = get_github_access_token(app_id, installation_id, 'private.pem')
-    repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
+    repo_url = f'https://x-access-token:{github_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
 
     # Clean workspace
     if os.path.exists(git_local_directory):
@@ -91,6 +63,7 @@ def main():
 
     print(f'Cloning repo {repo_url} to {git_local_directory}')
     repo = Repo.clone_from(repo_url, git_local_directory, branch=branch_name)
+    repo.remotes.origin.set_url(repo_url)  # ensure token URL is used for push
 
     # Update files
     for file_pattern in file_path_list:
