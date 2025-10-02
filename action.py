@@ -8,30 +8,13 @@ from git import Repo, GitCommandError
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 
-def find_replace_file_pattern(search_string: str, replace_string: str, file_path: Path, suffix: str = "\"") -> bool:
-    """
-    Find and replace a line starting with `search_string:` in the given file.
-    Returns True if a change was made, else False.
-    """
-    if not file_path.exists():
-        print(f"[WARN] File not found: {file_path}")
-        return False
-
-    content = file_path.read_text()
-
-    # regex match `search_string:<anything>`
-    pattern = rf"({re.escape(search_string)}:).*"
-    replacement = rf"\1{replace_string}{suffix}"
-
-    new_content = re.sub(pattern, replacement, content)
-
-    if new_content != content:
-        file_path.write_text(new_content)
-        print(f"[INFO] Updated {file_path} with {search_string}:{replace_string}{suffix}")
-        return True
-
-    print(f"[INFO] No changes needed for {file_path}")
-    return False
+def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
+    safe_replace = replace_string.replace("/", "\\/")
+    subprocess.call(
+        [
+            'sed', '-i', '-e', f's/{search_string}:.*/{search_string}:{safe_replace}{suffix}/g', file_pattern
+        ]
+    )
 
 
 def find_replace_with_sed(search_string: str, replace_string: str, file_path: Path, suffix: str = "\"") -> bool:
