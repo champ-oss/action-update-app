@@ -1,62 +1,81 @@
 #!/usr/bin/env python3
-"""
-GitHub Action: Update Docker image SHAs in files using a GitHub App
-"""
 
 import os
-import json
-import shutil
 import subprocess
-import time
+import shutil
 from pathlib import Path
+import json
+import re
 from git import Repo, GitCommandError
-import jwt
-import requests
-from tenacity import retry, wait_fixed, stop_after_attempt
-
-# -------------------------------
-# GitHub App Auth
-# -------------------------------
-def create_github_jwt(app_id: str, private_key: str) -> str:
-    now = int(time.time())
-    payload = {"iat": now, "exp": now + 600, "iss": app_id}
-    return jwt.encode(payload, private_key, algorithm="RS256")
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 
-def get_github_access_token(app_id: str, installation_id: str, private_key: str) -> str:
-    jwt_token = create_github_jwt(app_id, private_key)
-    url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
-    headers = {"Authorization": f"Bearer {jwt_token}", "Accept": "application/vnd.github+json"}
-    resp = requests.post(url, headers=headers)
-    resp.raise_for_status()
-    return resp.json()["token"]
+def run_cmd(cmd: list, cwd: Path = None):
+    """Run a shell command with optional working directory."""
+    print(f"[CMD] {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+    if result.returncode != 0:
+        print(f"[ERROR] {result.stderr}")
+        raise RuntimeError(f"Command failed: {' '.join(cmd)}")
+    return result.stdout.strip()
 
-# -------------------------------
-# Sed-based SHA update
-# -------------------------------
-def find_replace_file_pattern(search_string: str, replace_string: str, file_path: str, suffix: str = '"') -> None:
+
+def find_replace_file_pattern(search_string: str, replace_string: str, file_path: Path, suffix: str = "\"") -> bool:
     """
-    Use sed to replace everything after search_string: with replace_string+suffix
+    Find and replace a line starting with `search_string:` in the given file.
+    Returns True if a change was made, else False.
     """
-    subprocess.run(
-        [
-            "sed", "-i", "-e", f"s/{search_string}:.*/{search_string}:{replace_string}{suffix}/g", file_path
-        ],
-        check=True
-    )
+    if not file_path.exists():
+        print(f"[WARN] File not found: {file_path}")
+        return False
 
-# -------------------------------
-# Git commit & push
-# -------------------------------
+    with open(file_path, "r") as f:
+        content = f.read()
+
+    # Pattern: search for `search_string:<anything>`
+    pattern = rf"({re.escape(search_string)}:).*"
+    replacement = rf"\1{replace_string}{suffix}"
+
+    new_content = re.sub(pattern, replacement, content)
+
+    if new_content != content:
+        with open(file_path, "w") as f:
+            f.write(new_content)
+        print(f"[INFO] Updated {file_path} with {search_string}:{replace_string}{suffix}")
+        return True
+
+    print(f"[INFO] No changes needed for {file_path}")
+    return False
+
+
+def find_replace_with_sed(search_string: str, replace_string: str, file_path: Path, suffix: str = "\"") -> bool:
+    """
+    Alternative using `sed` for in-place replacement.
+    Returns True if sed made a change.
+    """
+    before = file_path.read_text()
+    subprocess.call([
+        "sed", "-i",
+        f"s/{search_string}:.*/{search_string}:{replace_string}{suffix}/g",
+        str(file_path)
+    ])
+    after = file_path.read_text()
+    return before != after
+
+
 def commit_and_push(repo_path: Path, file_path: Path, commit_message: str, branch_name: str = "main"):
+    """Commit and push changes to git, handling conflicts."""
     repo = Repo(repo_path)
     repo.git.checkout(branch_name)
 
     try:
         repo.git.pull("--rebase")
-        repo.index.add([str(file_path)])
+        # ✅ FIX: ensure we use relative path to repo root
+        rel_path = str(file_path.relative_to(repo_path))
+        repo.index.add([rel_path])
         repo.index.commit(commit_message)
         repo.remote().push()
+        print(f"[INFO] Successfully pushed changes for {rel_path}")
     except GitCommandError as e:
         if "CONFLICT" in str(e) or "rebase" in str(e):
             print(f"[ERROR] Rebase conflict detected: {e}")
@@ -70,55 +89,49 @@ def commit_and_push(repo_path: Path, file_path: Path, commit_message: str, branc
         else:
             raise
 
-# -------------------------------
-# Main workflow
-# -------------------------------
-@retry(wait=wait_fixed(4), stop=stop_after_attempt(10))
-def main():
-    # --- Environment variables ---
-    app_id = os.environ["GITHUB_APP_ID"]
-    installation_id = os.environ["GITHUB_INSTALLATION_ID"]
-    private_key = os.environ["GITHUB_APP_PRIVATE_KEY"].replace("\\n", "\n")
-    branch_name = os.environ.get("BRANCH", "main")
-    repo_owner = os.environ["GITHUB_REPOSITORY"].split("/")[0]
-    repo_name = os.environ["GITHUB_REPO_TARGET"]
-    git_local_dir = Path(os.environ.get("GIT_LOCAL_DIRECTORY", repo_name))
-    file_path_list = json.loads(os.environ["FILE_PATH_LIST"])
-    search_key = os.environ.get("SEARCH_KEY", repo_name)
-    replace_value = os.environ.get("REPLACE_VALUE", os.environ.get("GITHUB_SHA"))
-    suffix = os.environ.get("SUFFIX", '"')
 
-    # --- Clean local repo ---
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(5))
+def main():
+    github_repo_target = os.environ.get("GITHUB_REPO_TARGET")
+    file_path_list = json.loads(os.environ.get("FILE_PATH_LIST", "[]"))
+    search_key = os.environ.get("SEARCH_KEY")
+    replace_value = os.environ.get("REPLACE_VALUE", os.environ.get("GITHUB_SHA"))
+    branch_name = os.environ.get("BRANCH", "develop")
+    suffix = os.environ.get("SUFFIX", "\"")
+
+    if not github_repo_target:
+        raise ValueError("GITHUB_REPO_TARGET must be set")
+
+    # Clone target repo
+    repo_name = github_repo_target.split("/")[-1].replace(".git", "")
+    git_local_dir = Path(repo_name)
     if git_local_dir.exists():
         shutil.rmtree(git_local_dir)
 
-    # --- Clone repo using GitHub App token ---
-    access_token = get_github_access_token(app_id, installation_id, private_key)
-    repo_url = f"https://x-access-token:{access_token}@github.com/{repo_owner}/{repo_name}.git"
-    print(f"[INFO] Cloning repo: {repo_url} -> {git_local_dir}")
-    Repo.clone_from(repo_url, git_local_dir, branch=branch_name)
+    print(f"Cloning repo: {github_repo_target} -> {git_local_dir}")
+    Repo.clone_from(github_repo_target, git_local_dir, branch=branch_name)
 
-    # --- Debug: list all files in repo ---
-    all_files = [str(p.relative_to(git_local_dir)) for p in git_local_dir.rglob("*") if p.is_file()]
-    print(f"[DEBUG] Files in repo after clone: {all_files}")
+    changed_files = []
 
-    # --- Update files ---
-    for file_rel_path in file_path_list:
-        file_path = git_local_dir / file_rel_path
-        if not file_path.exists():
-            print(f"[WARNING] File not found, skipping: {file_path}")
-            continue
+    for file_path_str in file_path_list:
+        file_path = git_local_dir / file_path_str
+        print(f"[INFO] Processing file: {file_path}")
 
-        # Use sed to update SHA
-        find_replace_file_pattern(search_key, replace_value, str(file_path), suffix)
+        updated = find_replace_file_pattern(search_key, replace_value, file_path, suffix)
+        # or fallback to sed if regex fails
+        if not updated:
+            updated = find_replace_with_sed(search_key, replace_value, file_path, suffix)
 
-        # Commit & push changes
-        commit_msg = f"{search_key}:{replace_value}"
-        try:
+        if updated:
+            changed_files.append(file_path)
+
+    if changed_files:
+        commit_msg = f"{search_key}{replace_value}"
+        for file_path in changed_files:
             commit_and_push(git_local_dir, file_path, commit_msg, branch_name)
-            print(f"[INFO] Updated & pushed: {file_rel_path}")
-        except RuntimeError as e:
-            print(f"[ERROR] Failed to push {file_rel_path}: {e}")
+    else:
+        print("No changes to commit.")
+
 
 if __name__ == "__main__":
     main()
