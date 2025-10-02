@@ -7,13 +7,12 @@ import os
 import json
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from git import Repo, GitCommandError
 import jwt
 import requests
 from tenacity import retry, wait_fixed, stop_after_attempt
-import time
-
 
 # -------------------------------
 # GitHub App Auth
@@ -32,9 +31,8 @@ def get_github_access_token(app_id: str, installation_id: str, private_key: str)
     resp.raise_for_status()
     return resp.json()["token"]
 
-
 # -------------------------------
-# Sed-based SHA update function
+# Sed-based SHA update
 # -------------------------------
 def find_replace_file_pattern(search_string: str, replace_string: str, file_path: str, suffix: str = '"') -> None:
     """
@@ -46,7 +44,6 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_path
         ],
         check=True
     )
-
 
 # -------------------------------
 # Git commit & push
@@ -62,17 +59,16 @@ def commit_and_push(repo_path: Path, file_path: Path, commit_message: str, branc
         repo.remote().push()
     except GitCommandError as e:
         if "CONFLICT" in str(e) or "rebase" in str(e):
-            print(f"Rebase conflict detected: {e}")
+            print(f"[ERROR] Rebase conflict detected: {e}")
             try:
                 repo.git.rebase("--abort")
             except GitCommandError:
                 pass
-            print(f"Cleaning local repo due to conflict: {repo_path}")
+            print(f"[INFO] Cleaning local repo due to conflict: {repo_path}")
             shutil.rmtree(repo_path)
             raise RuntimeError(f"Rebase failed and repo cleaned: {e}")
         else:
             raise
-
 
 # -------------------------------
 # Main workflow
@@ -99,14 +95,18 @@ def main():
     # --- Clone repo using GitHub App token ---
     access_token = get_github_access_token(app_id, installation_id, private_key)
     repo_url = f"https://x-access-token:{access_token}@github.com/{repo_owner}/{repo_name}.git"
-    print(f"Cloning repo: {repo_url} -> {git_local_dir}")
+    print(f"[INFO] Cloning repo: {repo_url} -> {git_local_dir}")
     Repo.clone_from(repo_url, git_local_dir, branch=branch_name)
+
+    # --- Debug: list all files in repo ---
+    all_files = [str(p.relative_to(git_local_dir)) for p in git_local_dir.rglob("*") if p.is_file()]
+    print(f"[DEBUG] Files in repo after clone: {all_files}")
 
     # --- Update files ---
     for file_rel_path in file_path_list:
         file_path = git_local_dir / file_rel_path
         if not file_path.exists():
-            print(f"File not found, skipping: {file_path}")
+            print(f"[WARNING] File not found, skipping: {file_path}")
             continue
 
         # Use sed to update SHA
@@ -116,10 +116,9 @@ def main():
         commit_msg = f"{search_key}:{replace_value}"
         try:
             commit_and_push(git_local_dir, file_path, commit_msg, branch_name)
-            print(f"Updated & pushed: {file_rel_path}")
+            print(f"[INFO] Updated & pushed: {file_rel_path}")
         except RuntimeError as e:
-            print(f"Failed to push {file_rel_path}: {e}")
-
+            print(f"[ERROR] Failed to push {file_rel_path}: {e}")
 
 if __name__ == "__main__":
     main()
