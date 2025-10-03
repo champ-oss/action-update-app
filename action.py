@@ -89,20 +89,20 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
 def update_file(repo: Repository, branch_name: str, file_path: str,
                 search_string: str, gh_sha: str, content: str = None) -> Any | None:
     """
-    Update a file in the repo.
-
-    :param file_path: Path to file
-    :param repo: Repo to add file
-    :param search_string: search_string for message
-    :param content: Content of the file
-    :param gh_sha: gh sha for message.
-    :param branch_name: Name of branch
-    :return: SHA of the new commit
+    Update a file in the repo with the latest SHA to avoid overwriting concurrent changes.
     """
-    sha = repo.get_contents(file_path, ref=branch_name).sha
     try:
-        response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
-                                content=content, sha=sha, branch=branch_name)
+        # Always fetch latest file info *just before* update
+        file_info = repo.get_contents(file_path, ref=branch_name)
+        sha = file_info.sha
+
+        response = repo.update_file(
+            path=file_path,
+            message=f'updated {search_string}-{gh_sha}',
+            content=content,
+            sha=sha,
+            branch=branch_name
+        )
         return response is not None
     except Exception as e:
         print(f'Error occurred while updating the file: {e}')
