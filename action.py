@@ -67,7 +67,14 @@ def find_replace_file_pattern(search_string: str, replace_value: str, file_path:
 
 
 def git_commit_and_push(repo: Repo, branch: str, commit_message: str, token: str, repo_owner: str, repo_name: str):
+    """
+    Commit changes and push using GitHub App token via subprocess.
+    Retries up to 5 times on non-fast-forward errors.
+    """
+    # Stage all changes
     repo.git.add(A=True)
+
+    # Commit
     try:
         repo.index.commit(commit_message)
         print(f"Committed changes: {commit_message}")
@@ -76,23 +83,34 @@ def git_commit_and_push(repo: Repo, branch: str, commit_message: str, token: str
         return
 
     push_url = f"https://x-access-token:{token}@github.com/{repo_owner}/{repo_name}.git"
-    origin = repo.remotes.origin
-    origin.set_url(push_url)  # Ensure token is used for push
-    for i in range(5):
-        try:
-            print(f"Attempt {i+1}: pushing changes...")
-            origin.push(refspec=f"{branch}:{branch}")
-            print("Push successful!")
-            return
-        except GitCommandError as e:
-            print(f"Push failed: {e}. Retrying with pull --rebase...")
-            try:
-                origin.pull(branch, rebase=True)
-            except Exception as pe:
-                print(f"Pull before retry failed: {pe}")
-            time.sleep(5)
+    repo_dir = repo.working_tree_dir
 
-    raise Exception("ERROR: could not push to GitHub after 5 attempts")
+    for attempt in range(5):
+        try:
+            print(f"Attempt {attempt + 1}: pushing changes to {branch}...")
+            subprocess.run(
+                ["git", "push", push_url, f"{branch}:{branch}"],
+                cwd=repo_dir,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            print("✅ Push successful!")
+            return
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.strip() if e.stderr else ""
+            print(f"Push failed: {stderr}")
+
+            if "non-fast-forward" in stderr or "fetch first" in stderr:
+                print("Detected non-fast-forward. Pulling latest changes and retrying...")
+                subprocess.run(["git", "pull", "--rebase", push_url, branch], cwd=repo_dir, check=True)
+                time.sleep(2)
+            else:
+                print("Unknown push failure. Retrying...")
+                time.sleep(2)
+
+    raise Exception("ERROR: Could not push changes after 5 attempts")
+
 
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(10))
