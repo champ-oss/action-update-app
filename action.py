@@ -13,7 +13,6 @@ from tenacity import retry, wait_fixed, stop_after_attempt
 
 
 def create_github_jwt(app_id: str, pem: str) -> str:
-    """Create a GitHub JWT for the App."""
     now = int(time.time())
     payload = {"iat": now, "exp": now + 600, "iss": app_id}
     with open(pem, "r") as f:
@@ -22,7 +21,6 @@ def create_github_jwt(app_id: str, pem: str) -> str:
 
 
 def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
-    """Exchange the App JWT for an installation access token."""
     jwt_token = create_github_jwt(app_id, pem)
     res = requests.post(
         f"https://api.github.com/app/installations/{installation_id}/access_tokens",
@@ -36,17 +34,15 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
 
 
 def git_clone_repo(repo_url: str, destination: str, branch: str) -> Repo:
-    """Clone a repository and checkout a branch."""
     print(f"Cloning branch '{branch}' from {repo_url} into {destination}")
     repo = Repo.clone_from(repo_url, destination, branch=branch)
     with repo.config_writer() as cw:
-        cw.set_value("user", "name", "GitHub Actions")
-        cw.set_value("user", "email", "no@reply.com")
+        cw.set_value("user", "name", "github-actions[bot]")
+        cw.set_value("user", "email", "github-actions[bot]@users.noreply.github.com")
     return repo
 
 
 def git_pull_repo(repo: Repo, branch: str):
-    """Pull latest changes with rebase to avoid merge commits."""
     origin = repo.remotes.origin
     print(f"Pulling latest changes from {branch}...")
     origin.fetch()
@@ -58,7 +54,6 @@ def git_pull_repo(repo: Repo, branch: str):
 
 
 def find_replace_file_pattern(search_string: str, replace_value: str, file_path: Path, suffix: str = '"'):
-    """Run sed in-place replacement on file."""
     subprocess.run(
         [
             "sed",
@@ -71,8 +66,7 @@ def find_replace_file_pattern(search_string: str, replace_value: str, file_path:
     print(f"Updated {file_path} for {search_string} → {replace_value}")
 
 
-def git_commit_and_push(repo: Repo, branch: str, commit_message: str):
-    """Commit and push with retry logic."""
+def git_commit_and_push(repo: Repo, branch: str, commit_message: str, token: str, repo_owner: str, repo_name: str):
     repo.git.add(A=True)
     try:
         repo.index.commit(commit_message)
@@ -81,7 +75,9 @@ def git_commit_and_push(repo: Repo, branch: str, commit_message: str):
         print(f"No changes to commit: {e}")
         return
 
+    push_url = f"https://x-access-token:{token}@github.com/{repo_owner}/{repo_name}.git"
     origin = repo.remotes.origin
+    origin.set_url(push_url)  # Ensure token is used for push
     for i in range(5):
         try:
             print(f"Attempt {i+1}: pushing changes...")
@@ -136,9 +132,10 @@ def main():
     target_file = full_path / file_path_list[0] if len(file_path_list) == 1 else None
     find_replace_file_pattern(search_key, replace_value, target_file, suffix)
 
-    # Commit and push changes
-    git_commit_and_push(repo, branch_name, f"{search_key}{replace_value}")
+    # Commit and push changes using approved token
+    git_commit_and_push(repo, branch_name, f"{search_key}{replace_value}", access_token, repo_owner_target, repo_name_target)
 
 
 if __name__ == "__main__":
     main()
+
