@@ -4,6 +4,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+import json
 
 import jwt
 import requests
@@ -105,11 +106,11 @@ def main():
     private_key = os.environ.get("GITHUB_APP_PRIVATE_KEY")
     repo_owner_target, _ = os.environ.get("GITHUB_REPOSITORY").split("/")
     repo_name_target = os.environ.get("GITHUB_REPO_TARGET")
-    branch_name = os.environ.get("BRANCH", "develop")
+    branch_name = os.environ.get("BRANCH", "main")
 
     directory = os.environ.get("DIRECTORY", ".update")
     directory_path = os.environ.get("DIRECTORY_PATH", "")
-    file_pattern = os.environ.get("FILE_PATTERN", "variables.tf")
+    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
     suffix = os.environ.get("SUFFIX", '"')
     search_key = os.environ.get("SEARCH_KEY", f"{os.environ.get('GITHUB_REPOSITORY').split('/')[-1]}:")
     replace_value = os.environ.get("REPLACE_VALUE", os.environ.get("GITHUB_SHA"))
@@ -132,7 +133,7 @@ def main():
 
     # Update files
     full_path = Path(directory) / directory_path if directory_path else Path(directory)
-    target_file = full_path / file_pattern
+    target_file = full_path / file_path_list[0] if len(file_path_list) == 1 else None
     find_replace_file_pattern(search_key, replace_value, target_file, suffix)
 
     # Commit and push changes
