@@ -56,18 +56,17 @@ def git_pull_repo(repo: Repo, branch: str):
         print(f"Pull failed (continuing): {e}")
 
 
-def find_replace_file_pattern(search_string: str, replace_value: str, file_path: Path, suffix: str = '"'):
-    """Find and replace text in the file using sed (known working version)."""
-    print(f"Running sed on {file_path} to replace '{search_string}' → '{replace_value}'")
-    subprocess.run(
+def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str):
+    """Find and replace pattern in file using working sed command."""
+    print(f"Running sed on {file_pattern} to replace '{search_string}' → '{replace_string}'")
+    subprocess.call(
         [
             "sed",
             "-i",
             "-e",
-            f"s/{search_string}:.*/{search_string}:{replace_value}{suffix}/g",
-            str(file_path),
-        ],
-        check=True,
+            f"s/{search_string}:.*/{search_string}:{replace_string}{suffix}/g",
+            file_pattern,
+        ]
     )
 
 
@@ -104,45 +103,40 @@ def git_commit_and_push(repo: Repo, branch: str, commit_message: str, token: str
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(10))
 def main():
-    app_id = os.environ["GITHUB_APP_ID"]
-    installation_id = os.environ["GITHUB_INSTALLATION_ID"]
-    private_key = os.environ["GITHUB_APP_PRIVATE_KEY"]
-    repo_owner_target, _ = os.environ["GITHUB_REPOSITORY"].split("/")
-    repo_name_target = os.environ["GITHUB_REPO_TARGET"]
-    branch_name = os.environ.get("BRANCH", "main")
-
-    directory = os.environ.get("DIRECTORY", ".update")
-    directory_path = os.environ.get("DIRECTORY_PATH", "")
-    file_path_list = json.loads(os.environ["FILE_PATH_LIST"])
-    suffix = os.environ.get("SUFFIX", '"')
-    search_key = os.environ.get("SEARCH_KEY", f"{os.environ['GITHUB_REPOSITORY'].split('/')[-1]}:")
-    replace_value = os.environ.get("REPLACE_VALUE", os.environ.get("GITHUB_SHA"))
-
-    if suffix == "off":
-        suffix = ""
+    # Environment variable assignments (your preferred key/value style)
+    app_id = os.environ.get('GITHUB_APP_ID')
+    installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
+    private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
+    branch_name = os.environ.get('BRANCH', 'main')
+    repo_owner_target = os.environ.get('GITHUB_REPOSITORY').split('/')[0]
+    search_string = os.environ.get('SEARCH_KEY', os.environ.get('GITHUB_REPOSITORY').split('/')[1])
+    repo_name_target = os.environ.get('GITHUB_REPO_TARGET')
+    git_local_directory = os.environ.get('GIT_LOCAL_DIRECTORY', repo_name_target)
+    os.system(f'rm -rf {git_local_directory} || true')
+    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
+    updated_private_key = private_key.replace('\\n', '\n').strip('"')
+    suffix = os.environ.get('SUFFIX', '"')
+    gh_sha = os.environ.get('GITHUB_SHA')
+    replace_value = os.environ.get('REPLACE_VALUE', gh_sha)
 
     # Write private key
-    updated_private_key = private_key.replace("\\n", "\n").strip('"')
     with open("private.pem", "w") as f:
         f.write(updated_private_key)
 
     # Get token and clone
     access_token = get_github_access_token(app_id, installation_id, "private.pem")
     repo_url = f"https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git"
-
-    if os.path.exists(directory):
-        os.system(f"rm -rf {directory}")
-    repo = git_clone_repo(repo_url, directory, branch_name)
+    repo = git_clone_repo(repo_url, git_local_directory, branch_name)
     git_pull_repo(repo, branch_name)
 
     # Update all listed files
-    full_path = Path(directory) / directory_path if directory_path else Path(directory)
+    full_path = Path(git_local_directory)
     for relative_file_path in file_path_list:
         target_file = full_path / relative_file_path
-        find_replace_file_pattern(search_key, replace_value, target_file, suffix)
+        find_replace_file_pattern(search_string, replace_value, target_file, suffix)
 
     # Commit and push
-    git_commit_and_push(repo, branch_name, f"{search_key}{replace_value}", access_token, repo_owner_target, repo_name_target)
+    git_commit_and_push(repo, branch_name, f"{search_string}{replace_value}", access_token, repo_owner_target, repo_name_target)
 
 
 if __name__ == "__main__":
