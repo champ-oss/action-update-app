@@ -133,7 +133,7 @@ def main():
 
         success = update_file(gh_repo, branch_name, file_path, search_string, gh_sha, content)
         if success:
-            print(f'✅ Successfully updated {file_path}')
+            print(f'✅ Successful updated {file_path}')
         else:
             print(f'❌ Failed to update {file_path}')
 
