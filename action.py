@@ -53,17 +53,20 @@ def git_pull_repo(repo: Repo, branch: str):
         print(f"Pull failed: {e}")
 
 
-def find_replace_file_pattern(search_string: str, replace_value: str, file_path: Path, suffix: str = '"'):
-    subprocess.run(
+def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
+    """
+    Find and replace pattern in file.
+
+    :param suffix: default is double quotes to end the line.
+    :param file_pattern: file_pattern
+    :param search_string: search_string
+    :param replace_string: replace_string to update
+    """
+    subprocess.call(
         [
-            "sed",
-            "-i",
-            f"s/{search_string}.*/{search_string}{replace_value}{suffix}/g",
-            str(file_path),
-        ],
-        check=True,
+            'sed', '-i', '-e', f's/{search_string}:.*/{search_string}:{replace_string}{suffix}/g', file_pattern
+        ]
     )
-    print(f"Updated {file_path} for {search_string} → {replace_value}")
 
 
 def git_commit_and_push(repo: Repo, branch: str, commit_message: str, token: str, repo_owner: str, repo_name: str):
@@ -130,7 +133,7 @@ def main():
     # Update files
     full_path = Path(directory) / directory_path if directory_path else Path(directory)
     target_file = full_path / file_path_list[0] if len(file_path_list) == 1 else None
-    find_replace_file_pattern(search_key, replace_value, target_file, suffix)
+    find_replace_file_pattern(search_key, replace_value, target_file if target_file else str(full_path / "*"), suffix)
 
     # Commit and push changes using approved token
     git_commit_and_push(repo, branch_name, f"{search_key}{replace_value}", access_token, repo_owner_target, repo_name_target)
