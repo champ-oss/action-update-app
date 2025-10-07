@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Description: Update files in a GitHub repository via GitHub App authentication.
+# Description: Update files in a GitHub repository using GitHub App auth (no GitHub API).
 import os
 import subprocess
 import time
@@ -12,16 +12,18 @@ from git import Repo, GitCommandError
 from tenacity import retry, wait_fixed, stop_after_attempt
 
 
-def create_github_jwt(app_id: str, pem: str) -> str:
+def create_github_jwt(app_id: str, pem_path: str) -> str:
+    """Create a short-lived GitHub App JWT."""
     now = int(time.time())
     payload = {"iat": now, "exp": now + 600, "iss": app_id}
-    with open(pem, "r") as f:
+    with open(pem_path, "r") as f:
         private_key = f.read()
     return jwt.encode(payload, private_key, algorithm="RS256")
 
 
-def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
-    jwt_token = create_github_jwt(app_id, pem)
+def get_github_access_token(app_id: str, installation_id: str, pem_path: str) -> str:
+    """Request an installation access token for the GitHub App."""
+    jwt_token = create_github_jwt(app_id, pem_path)
     res = requests.post(
         f"https://api.github.com/app/installations/{installation_id}/access_tokens",
         headers={
@@ -34,6 +36,7 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
 
 
 def git_clone_repo(repo_url: str, destination: str, branch: str) -> Repo:
+    """Clone the repository and configure Git identity."""
     print(f"Cloning branch '{branch}' from {repo_url} into {destination}")
     repo = Repo.clone_from(repo_url, destination, branch=branch)
     with repo.config_writer() as cw:
@@ -43,44 +46,45 @@ def git_clone_repo(repo_url: str, destination: str, branch: str) -> Repo:
 
 
 def git_pull_repo(repo: Repo, branch: str):
+    """Pull latest changes from remote branch."""
     origin = repo.remotes.origin
     print(f"Pulling latest changes from {branch}...")
     origin.fetch()
     try:
         origin.pull(branch, rebase=True)
-        print("Repository up-to-date.")
     except GitCommandError as e:
-        print(f"Pull failed: {e}")
+        print(f"Pull failed (continuing): {e}")
 
 
-def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
-    """
-    Find and replace pattern in file.
-
-    :param suffix: default is double quotes to end the line.
-    :param file_pattern: file_pattern
-    :param search_string: search_string
-    :param replace_string: replace_string to update
-    """
-    subprocess.call(
+def find_replace_file_pattern(search_string: str, replace_value: str, file_path: Path, suffix: str = '"'):
+    """Find and replace text in the file using sed (known working version)."""
+    print(f"Running sed on {file_path} to replace '{search_string}' → '{replace_value}'")
+    subprocess.run(
         [
-            'sed', '-i', '-e', f's/{search_string}:.*/{search_string}:{replace_string}{suffix}/g', file_pattern
-        ]
+            "sed",
+            "-i",
+            "-e",
+            f"s/{search_string}:.*/{search_string}:{replace_value}{suffix}/g",
+            str(file_path),
+        ],
+        check=True,
     )
 
 
 def git_commit_and_push(repo: Repo, branch: str, commit_message: str, token: str, repo_owner: str, repo_name: str):
-    repo.git.add(A=True)
-    try:
-        repo.index.commit(commit_message)
-        print(f"Committed changes: {commit_message}")
-    except Exception as e:
-        print(f"No changes to commit: {e}")
+    """Commit and push local changes using the GitHub App token."""
+    if not repo.is_dirty(untracked_files=True):
+        print("No changes detected. Skipping commit and push.")
         return
+
+    repo.git.add(A=True)
+    repo.index.commit(commit_message)
+    print(f"Committed changes: {commit_message}")
 
     push_url = f"https://x-access-token:{token}@github.com/{repo_owner}/{repo_name}.git"
     origin = repo.remotes.origin
-    origin.set_url(push_url)  # Ensure token is used for push
+    origin.set_url(push_url)
+
     for i in range(5):
         try:
             print(f"Attempt {i+1}: pushing changes...")
@@ -100,45 +104,46 @@ def git_commit_and_push(repo: Repo, branch: str, commit_message: str, token: str
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(10))
 def main():
-    app_id = os.environ.get("GITHUB_APP_ID")
-    installation_id = os.environ.get("GITHUB_INSTALLATION_ID")
-    private_key = os.environ.get("GITHUB_APP_PRIVATE_KEY")
-    repo_owner_target, _ = os.environ.get("GITHUB_REPOSITORY").split("/")
-    repo_name_target = os.environ.get("GITHUB_REPO_TARGET")
+    app_id = os.environ["GITHUB_APP_ID"]
+    installation_id = os.environ["GITHUB_INSTALLATION_ID"]
+    private_key = os.environ["GITHUB_APP_PRIVATE_KEY"]
+    repo_owner_target, _ = os.environ["GITHUB_REPOSITORY"].split("/")
+    repo_name_target = os.environ["GITHUB_REPO_TARGET"]
     branch_name = os.environ.get("BRANCH", "main")
 
     directory = os.environ.get("DIRECTORY", ".update")
     directory_path = os.environ.get("DIRECTORY_PATH", "")
-    file_path_list = json.loads(os.environ['FILE_PATH_LIST'])
+    file_path_list = json.loads(os.environ["FILE_PATH_LIST"])
     suffix = os.environ.get("SUFFIX", '"')
-    search_key = os.environ.get("SEARCH_KEY", f"{os.environ.get('GITHUB_REPOSITORY').split('/')[-1]}:")
+    search_key = os.environ.get("SEARCH_KEY", f"{os.environ['GITHUB_REPOSITORY'].split('/')[-1]}:")
     replace_value = os.environ.get("REPLACE_VALUE", os.environ.get("GITHUB_SHA"))
 
     if suffix == "off":
         suffix = ""
 
+    # Write private key
     updated_private_key = private_key.replace("\\n", "\n").strip('"')
     with open("private.pem", "w") as f:
         f.write(updated_private_key)
 
+    # Get token and clone
     access_token = get_github_access_token(app_id, installation_id, "private.pem")
     repo_url = f"https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git"
 
-    # Clean and clone
     if os.path.exists(directory):
         os.system(f"rm -rf {directory}")
     repo = git_clone_repo(repo_url, directory, branch_name)
     git_pull_repo(repo, branch_name)
 
-    # Update files
+    # Update all listed files
     full_path = Path(directory) / directory_path if directory_path else Path(directory)
-    target_file = full_path / file_path_list[0] if len(file_path_list) == 1 else None
-    find_replace_file_pattern(search_key, replace_value, target_file if target_file else str(full_path / "*"), suffix)
+    for relative_file_path in file_path_list:
+        target_file = full_path / relative_file_path
+        find_replace_file_pattern(search_key, replace_value, target_file, suffix)
 
-    # Commit and push changes using approved token
+    # Commit and push
     git_commit_and_push(repo, branch_name, f"{search_key}{replace_value}", access_token, repo_owner_target, repo_name_target)
 
 
 if __name__ == "__main__":
     main()
-
