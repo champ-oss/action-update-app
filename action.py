@@ -53,7 +53,7 @@ def find_replace_file_pattern(search_string: str, replace_value: str, file_path:
 
 def git_commit_and_push_single_file(repo: Repo, branch: str, file_path: str, commit_message: str, token: str, repo_owner: str, repo_name: str):
     """Commit and push via Git, fallback to API if push fails."""
-    repo.git.add(file_path)
+    repo.git.add(os.path.relpath(file_path, repo.working_tree_dir))
     try:
         repo.index.commit(commit_message)
         print(f"Committed changes to {file_path}")
