@@ -1,29 +1,19 @@
 #!/usr/bin/env python3
-# Description: This action is used to update the file in the github repository.
+# Description: Update files in a GitHub repository using minimal changes.
+
 import json
 import subprocess
 import time
-from typing import Any
-
-import github.Auth
-import jwt
-import requests
 from pathlib import Path
 import os
 
-from git import Repo
-from github import Repository
+import jwt
+import requests
+from git import Repo, GitCommandError
 from tenacity import retry, wait_fixed, stop_after_attempt
 
 
 def create_github_jwt(app_id: str, pem: str) -> str:
-    """
-    Create GitHub JWT.
-
-    :param app_id: GitHub App's identifier
-    :param pem: Path to the private
-    :return: GitHub JWT
-    """
     time_now = int(time.time())
     payload = {
         'iat': time_now,
@@ -37,14 +27,6 @@ def create_github_jwt(app_id: str, pem: str) -> str:
 
 
 def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
-    """
-    Get GitHub App access token.
-
-    :param app_id: GitHub App's identifier
-    :param installation_id: GitHub App's installation identifier
-    :param pem: Path to the private
-    :return: GitHub App access token
-    """
     create_jwt = create_github_jwt(app_id, pem)
     response = requests.post(
         f'https://api.github.com/app/installations/{installation_id}/access_tokens',
@@ -59,26 +41,14 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
 
 
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
-    """
-    Clone the repository.
-
-    :param repo_url: Repository URL
-    :param destination_name: Destination name
-    :param branch_name: Branch name
-    """
     repo = Repo.clone_from(repo_url, destination_name, branch=branch_name)
+    with repo.config_writer() as cw:
+        cw.set_value("user", "name", "github-actions[bot]")
+        cw.set_value("user", "email", "github-actions[bot]@users.noreply.github.com")
     return repo
 
 
 def find_replace_file_pattern(search_string: str, replace_string: str, file_pattern, suffix: str) -> None:
-    """
-    Find and replace pattern in file.
-
-    :param suffix: default is double quotes to end the line.
-    :param file_pattern: file_pattern
-    :param search_string: search_string
-    :param replace_string: replace_string to update
-    """
     subprocess.call(
         [
             'sed', '-i', '-e', f's/{search_string}:.*/{search_string}:{replace_string}{suffix}/g', file_pattern
@@ -86,32 +56,29 @@ def find_replace_file_pattern(search_string: str, replace_string: str, file_patt
     )
 
 
-def update_file(repo: Repository, branch_name: str, file_path: str,
-                search_string: str, gh_sha: str, content: str = None) -> Any | None:
-    """
-    Update a file in the repo.
+def git_commit_and_push(repo: Repo, branch: str, commit_message: str, token: str, repo_owner: str, repo_name: str):
+    if not repo.is_dirty(untracked_files=True):
+        print("No changes detected. Skipping commit and push.")
+        return
 
-    :param file_path: Path to file
-    :param repo: Repo to add file
-    :param search_string: search_string for message
-    :param content: Content of the file
-    :param gh_sha: gh sha for message.
-    :param branch_name: Name of branch
-    :return: SHA of the new commit
-    """
-    sha = repo.get_contents(file_path, ref=branch_name).sha
+    repo.git.add(A=True)
+    repo.index.commit(commit_message)
+    print(f"Committed changes: {commit_message}")
+
+    push_url = f"https://x-access-token:{token}@github.com/{repo_owner}/{repo_name}.git"
+    origin = repo.remotes.origin
+    origin.set_url(push_url)
+
     try:
-        response = repo.update_file(path=file_path, message=f'updated {search_string}-{gh_sha}',
-                                content=content, sha=sha, branch=branch_name)
-        return response is not None
-    except Exception as e:
-        print(f'Error occurred while updating the file: {e}')
-        return None
+        origin.push(refspec=f"{branch}:{branch}")
+        print("Push successful!")
+    except GitCommandError as e:
+        print(f"Push failed: {e}")
+        raise
 
 
 @retry(wait=wait_fixed(4), stop=stop_after_attempt(15))
 def main():
-
     app_id = os.environ.get('GITHUB_APP_ID')
     installation_id = os.environ.get('GITHUB_INSTALLATION_ID')
     private_key = os.environ.get('GITHUB_APP_PRIVATE_KEY')
@@ -126,27 +93,25 @@ def main():
     suffix = os.environ.get('SUFFIX', '"')
     gh_sha = os.environ.get('GITHUB_SHA')
     replace_value = os.environ.get('REPLACE_VALUE', gh_sha)
+
     # write private key to file
     with open('private.pem', 'w') as file:
         file.write(updated_private_key)
+
     access_token = get_github_access_token(app_id, installation_id, 'private.pem')
     repo_url = f'https://x-access-token:{access_token}@github.com/{repo_owner_target}/{repo_name_target}.git'
     print(f'Cloning repo: {repo_url} to {git_local_directory}')
-    git_clone_repo(repo_url, git_local_directory, branch_name)
-    github_client = github.Github(access_token)
-    repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
+    repo = git_clone_repo(repo_url, git_local_directory, branch_name)
+
+    # update files locally
+    full_path = Path(git_local_directory)
     for file_pattern in file_path_list:
-        updated_file_path = Path(git_local_directory) / file_pattern
+        updated_file_path = full_path / file_pattern
         find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
-        if updated_file_path.exists():
-            with open(updated_file_path, 'r') as file:
-                content = file.read()
-            update_file_status = update_file(repo, branch_name, file_pattern, search_string, gh_sha, content)
-            if update_file_status is not None:
-                print(f'File updated successfully: {file_pattern}')
-            else:
-                os.system(f'rm -rf {git_local_directory} || true')
-                raise Exception(f'Error occurred while updating the file: {file_pattern}')
+
+    # commit and push changes
+    git_commit_and_push(repo, branch_name, f"{search_string}:{replace_value}", access_token, repo_owner_target, repo_name_target)
 
 
-main()
+if __name__ == "__main__":
+    main()
