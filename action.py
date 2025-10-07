@@ -41,8 +41,12 @@ def get_github_access_token(app_id: str, installation_id: str, pem: str) -> str:
 
 
 def git_clone_repo(repo_url: str, destination_name: str, branch_name: str) -> Repo:
-    repo = Repo.clone_from(repo_url, destination=destination_name, branch=branch_name)
+    """
+    Clone the repository.
+    """
+    repo = Repo.clone_from(repo_url, destination_name, branch=branch_name)
     return repo
+
 
 
 def git_pull_file(repo_dir: str, token: str, repo_owner: str, repo_name: str, branch_name: str):
@@ -114,22 +118,24 @@ def main():
     github_client = github.Github(access_token)
     gh_repo = github_client.get_repo(f'{repo_owner_target}/{repo_name_target}')
 
-    for file_pattern in file_path_list:
-        updated_file_path = Path(git_local_directory) / file_pattern
+    for file_path in file_path_list:
+        full_file_path = Path(git_local_directory) / file_path
+        if not full_file_path.exists():
+            print(f'❌ File {full_file_path} does not exist. Skipping.')
+            continue
 
-        # ✅ Git pull right before updating this file
+        print(f'Processing file: {full_file_path}')
         git_pull_file(git_local_directory, access_token, repo_owner_target, repo_name_target, branch_name)
+        find_replace_file_pattern(search_string, replace_value, str(full_file_path), suffix)
 
-        find_replace_file_pattern(search_string, replace_value, updated_file_path, suffix)
+        with open(full_file_path, 'r') as file:
+            content = file.read()
 
-        if updated_file_path.exists():
-            with open(updated_file_path, 'r') as file:
-                content = file.read()
-            if update_file(gh_repo, branch_name, file_pattern, search_string, gh_sha, content):
-                print(f'✅ File updated successfully: {file_pattern}')
-            else:
-                os.system(f'rm -rf {git_local_directory} || true')
-                raise Exception(f'Error occurred while updating the file: {file_pattern}')
+        success = update_file(gh_repo, branch_name, file_path, search_string, gh_sha, content)
+        if success:
+            print(f'✅ Successfully updated {file_path}')
+        else:
+            print(f'❌ Failed to update {file_path}')
 
 
 if __name__ == "__main__":
